@@ -56,7 +56,6 @@ public class GtfsRealTimeSqlRecorder {
 				try {
 					recordAlert(entity.getAlert());
 				} catch (SQLException e) {
-					throw e;
 				}
 			}
 
@@ -64,7 +63,6 @@ public class GtfsRealTimeSqlRecorder {
 				try {
 					recordTripUpdate(entity.getTripUpdate());
 				} catch (Exception e) {
-					throw e;
 				}
 			}
 
@@ -72,7 +70,6 @@ public class GtfsRealTimeSqlRecorder {
 				try {
 					recordVehicle(entity.getVehicle());
 				} catch (Exception e) {
-					throw e;
 				}
 			}
 		}
