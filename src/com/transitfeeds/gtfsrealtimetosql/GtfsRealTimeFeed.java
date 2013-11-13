@@ -24,7 +24,7 @@ import com.google.transit.realtime.GtfsRealtime.FeedMessage;
 import com.sun.org.apache.xml.internal.security.utils.Base64;
 
 public class GtfsRealTimeFeed {
-	
+
 	private String mUrl;
 	private String mUsername;
 	private String mPassword;
@@ -33,11 +33,7 @@ public class GtfsRealTimeFeed {
 	public GtfsRealTimeFeed(String url) {
 		mUrl = url;
 	}
-
-	public String getUrl() {
-		return mUrl;
-	}
-
+	
 	public void setCredentials(String username, String password) {
 		mUsername = username;
 		mPassword = password;
@@ -49,11 +45,10 @@ public class GtfsRealTimeFeed {
 	}
 	
 	public void load() throws Exception {
-
-		HttpClient httpClient;
-
 		String url = mUrl;
 		
+		HttpClient httpClient;
+
 		System.err.println("Loading " + url);
 		
 		URI uri = new URI(url);

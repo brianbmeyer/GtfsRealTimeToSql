@@ -46,10 +46,21 @@ public class GtfsRealTimeSqlRecorder {
 		closeStatements();
 	}
 
-	public void record(FeedMessage feedMessage) throws Exception {
-		boolean autoCommit = mConnection.getAutoCommit();
+	private boolean mAutoCommit;
+	
+	public void begin() throws SQLException {
+		mAutoCommit = mConnection.getAutoCommit();
 		mConnection.setAutoCommit(false);
 		clearData();
+	}
+	
+	public void commit() throws SQLException
+	{
+		mConnection.commit();
+		mConnection.setAutoCommit(mAutoCommit);
+	}
+	
+	public void record(FeedMessage feedMessage) throws Exception {
 
 		for (FeedEntity entity : feedMessage.getEntityList()) {
 			if (entity.hasAlert()) {
@@ -73,9 +84,6 @@ public class GtfsRealTimeSqlRecorder {
 				}
 			}
 		}
-
-		mConnection.commit();
-		mConnection.setAutoCommit(autoCommit);
 	}
 
 	public static String[] TABLES = { 

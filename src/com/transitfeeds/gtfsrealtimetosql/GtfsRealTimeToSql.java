@@ -51,10 +51,10 @@ public class GtfsRealTimeToSql {
 			daemonize();
 		}
 		
-		int seconds = 0;
+		long seconds = 0;
 		
 		try {
-			seconds = Integer.valueOf(line.getOptionValue("refresh"));
+			seconds = Long.valueOf(line.getOptionValue("refresh"));
 		}
 		catch (Exception e) {
 			
@@ -65,7 +65,7 @@ public class GtfsRealTimeToSql {
 		String username = line.getOptionValue("username");
 		String password = line.getOptionValue("password");
 
-		String url = line.getOptionValue("u");
+		String[] urls = line.getOptionValues("u");
 
 		String connStr = line.getOptionValue("s");
 		
@@ -76,28 +76,16 @@ public class GtfsRealTimeToSql {
 		
 		Connection connection = DriverManager.getConnection(connStr, line.getOptionValue("dbusername"), line.getOptionValue("dbpassword"));
 		
-		GtfsRealTimeFeed feed = new GtfsRealTimeFeed(url);
-		feed.setCredentials(username, password);
-
 		GtfsRealTimeSqlRecorder recorder = new GtfsRealTimeSqlRecorder(connection);
-		recorder.startup();
+		FeedRunnerThread thread = new FeedRunnerThread(recorder, seconds * 1000);
 
-		while (true) {
-			try {
-				feed.load();
-				recorder.record(feed.getFeedMessage());
-				
-				long sleep = seconds * 1000;
-				
-				System.err.println(String.format("Sleeping %dms", sleep));
-				
-				Thread.sleep(sleep);
-			} catch (InterruptedException e) {
-				break;
-			}
+		for (int i = 0; i < urls.length; i++) {
+			GtfsRealTimeFeed feed = new GtfsRealTimeFeed(urls[i]);
+			feed.setCredentials(username, password);
+			thread.addFeed(feed);
 		}
 		
-		recorder.shutdown();
+		thread.start();		
 	}
 
 	public static void showHelp(Options options) {
@@ -105,10 +93,10 @@ public class GtfsRealTimeToSql {
 		formatter.printHelp("GtfsRealTimeToSql", options);
 	}
 
-//	private static Thread mMainThread;
+	private static Thread mMainThread;
 
 	public static void daemonize() {
-//		mMainThread = Thread.currentThread();
+		mMainThread = Thread.currentThread();
 
 		File pid = getPidFile();
 
@@ -118,6 +106,19 @@ public class GtfsRealTimeToSql {
 
 		System.out.close();
 		System.err.close();
+		
+		Runtime.getRuntime().addShutdownHook(new Thread() {
+			public void run() {
+				GtfsRealTimeToSql.shutdown();
+			}
+		});
+	}
+
+	public static void shutdown() {
+		try {
+			mMainThread.join();
+		} catch (InterruptedException e) {
+		}
 	}
 
 	static public File getPidFile() {
