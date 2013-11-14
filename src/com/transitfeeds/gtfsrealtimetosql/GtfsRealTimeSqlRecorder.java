@@ -91,7 +91,7 @@ public class GtfsRealTimeSqlRecorder {
 		"gtfs_rt_alerts_timeranges", "alert_id INTEGER, start INTEGER, finish INTEGER", "",
 		"gtfs_rt_alerts_entities", "alert_id INTEGER, agency_id TEXT, route_id TEXT, route_type INTEGER, stop_id TEXT, trip_rship INTEGER, trip_start_date TEXT, trip_start_time TEXT, trip_id TEXT", "agency_id,route_id,stop_id,trip_id",
 		"gtfs_rt_vehicles", "congestion INTEGER, status INTEGER, sequence INTEGER, bearing REAL, odometer REAL, speed REAL, latitude REAL, longitude REAL, stop_id TEXT, ts INTEGER, trip_sr INTEGER, trip_date TEXT, trip_time TEXT, trip_id TEXT, vehicle_id TEXT, vehicle_label TEXT, vehicle_plate TEXT", "stop_id,trip_id",
-		"gtfs_rt_trip_updates", "update_id INTEGER PRIMARY KEY, ts INTEGER, trip_sr INTEGER, trip_date TEXT, trip_time TEXT, trip_id TEXT, vehicle_id TEXT, vehicle_label TEXT, vehicle_plate TEXT", "trip_id",
+		"gtfs_rt_trip_updates", "update_id INTEGER PRIMARY KEY, ts INTEGER, trip_sr INTEGER, trip_date TEXT, trip_time TEXT, trip_id TEXT, route_id TEXT, vehicle_id TEXT, vehicle_label TEXT, vehicle_plate TEXT", "trip_id",
 		"gtfs_rt_trip_updates_stoptimes", "update_id INTEGER, arrival_time INTEGER, arrival_uncertainty INTEGER, arrival_delay INTEGER, departure_time INTEGER, departure_uncertainty INTEGER, departure_delay INTEGER, rship INTEGER, stop_id TEXT, stop_sequence INTEGER", "stop_id"
 	};
 	
@@ -164,7 +164,7 @@ public class GtfsRealTimeSqlRecorder {
 		mStatements.put(STALERT_TIMERANGES, mConnection.prepareStatement("INSERT INTO gtfs_rt_alerts_timeranges (alert_id, start, finish) VALUES (?, ?, ?)", Statement.RETURN_GENERATED_KEYS));
 		mStatements.put(STALERT_ENTITIES, mConnection.prepareStatement("INSERT INTO gtfs_rt_alerts_entities (alert_id, agency_id, route_id, route_type, stop_id, trip_rship, trip_start_date, trip_start_time, trip_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", Statement.RETURN_GENERATED_KEYS));
 		mStatements.put(STVEHICLE, mConnection.prepareStatement("INSERT INTO gtfs_rt_vehicles (congestion, status, sequence, bearing, odometer, speed, latitude, longitude, stop_id, ts, trip_sr, trip_date, trip_time, trip_id, vehicle_id, vehicle_label, vehicle_plate) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", Statement.RETURN_GENERATED_KEYS));
-		mStatements.put(STTRIPUPDATE, mConnection.prepareStatement("INSERT INTO gtfs_rt_trip_updates (ts, trip_sr, trip_date, trip_time, trip_id, vehicle_id, vehicle_label, vehicle_plate) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", Statement.RETURN_GENERATED_KEYS));
+		mStatements.put(STTRIPUPDATE, mConnection.prepareStatement("INSERT INTO gtfs_rt_trip_updates (ts, trip_sr, trip_date, trip_time, trip_id, route_id, vehicle_id, vehicle_label, vehicle_plate) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", Statement.RETURN_GENERATED_KEYS));
 		mStatements.put(STTRIPUPDATE_STOPTIMEUPDATES, mConnection.prepareStatement("INSERT INTO gtfs_rt_trip_updates_stoptimes (update_id, arrival_time, arrival_uncertainty, arrival_delay, departure_time, departure_uncertainty, departure_delay, rship, stop_id, stop_sequence) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", Statement.RETURN_GENERATED_KEYS));
 	}
 
@@ -358,42 +358,50 @@ public class GtfsRealTimeSqlRecorder {
 			else {
 				stmt.setNull(5, Types.VARCHAR);
 			}
+			
+			if (trip.hasRouteId()) {
+				stmt.setString(6, trip.getRouteId());
+			}
+			else {
+				stmt.setNull(6, Types.VARCHAR);
+			}
 		}
 		else {
 			stmt.setNull(2, Types.INTEGER);
 			stmt.setNull(3, Types.VARCHAR);
 			stmt.setNull(4, Types.VARCHAR);
 			stmt.setNull(5, Types.VARCHAR);
+			stmt.setNull(6, Types.VARCHAR);
 		}
 		
 		if (tripUpdate.hasVehicle()) {
 			VehicleDescriptor vd = tripUpdate.getVehicle();
 			
 			if (vd.hasId()) {
-				stmt.setString(6, vd.getId());
+				stmt.setString(7, vd.getId());
 			}
 			else {
-				stmt.setNull(6, Types.INTEGER);
+				stmt.setNull(7, Types.INTEGER);
 			}
 			
 			if (vd.hasLabel()) {
-				stmt.setString(7, vd.getLabel());
-			}
-			else {
-				stmt.setNull(7, Types.VARCHAR);
-			}
-
-			if (vd.hasLicensePlate()) {
-				stmt.setString(8, vd.getLicensePlate());
+				stmt.setString(8, vd.getLabel());
 			}
 			else {
 				stmt.setNull(8, Types.VARCHAR);
 			}
+
+			if (vd.hasLicensePlate()) {
+				stmt.setString(9, vd.getLicensePlate());
+			}
+			else {
+				stmt.setNull(9, Types.VARCHAR);
+			}
 		}
 		else {
-			stmt.setNull(6, Types.INTEGER);
-			stmt.setNull(7, Types.VARCHAR);
+			stmt.setNull(7, Types.INTEGER);
 			stmt.setNull(8, Types.VARCHAR);
+			stmt.setNull(9, Types.VARCHAR);
 		}
 
 		stmt.execute();
