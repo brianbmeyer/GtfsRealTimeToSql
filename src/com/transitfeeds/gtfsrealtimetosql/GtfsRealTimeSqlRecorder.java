@@ -91,8 +91,8 @@ public class GtfsRealTimeSqlRecorder {
 		"gtfs_rt_alerts_timeranges", "alert_id INTEGER, start INTEGER, finish INTEGER", "",
 		"gtfs_rt_alerts_entities", "alert_id INTEGER, agency_id TEXT, route_id TEXT, route_type INTEGER, stop_id TEXT, trip_rship INTEGER, trip_start_date TEXT, trip_start_time TEXT, trip_id TEXT", "agency_id,route_id,stop_id,trip_id",
 		"gtfs_rt_vehicles", "congestion INTEGER, status INTEGER, sequence INTEGER, bearing REAL, odometer REAL, speed REAL, latitude REAL, longitude REAL, stop_id TEXT, ts INTEGER, trip_sr INTEGER, trip_date TEXT, trip_time TEXT, trip_id TEXT, vehicle_id TEXT, vehicle_label TEXT, vehicle_plate TEXT", "stop_id,trip_id",
-		"gtfs_rt_trip_updates", "update_id INTEGER PRIMARY KEY, ts INTEGER, trip_sr INTEGER, trip_date TEXT, trip_time TEXT, trip_id TEXT, route_id TEXT, vehicle_id TEXT, vehicle_label TEXT, vehicle_plate TEXT", "trip_id",
-		"gtfs_rt_trip_updates_stoptimes", "update_id INTEGER, arrival_time INTEGER, arrival_uncertainty INTEGER, arrival_delay INTEGER, departure_time INTEGER, departure_uncertainty INTEGER, departure_delay INTEGER, rship INTEGER, stop_id TEXT, stop_sequence INTEGER", "stop_id"
+		"gtfs_rt_trip_updates", "update_id INTEGER PRIMARY KEY, ts INTEGER, trip_sr INTEGER, trip_date TEXT, trip_time TEXT, trip_id TEXT, route_id TEXT, vehicle_id TEXT, vehicle_label TEXT, vehicle_plate TEXT", "trip_id,route_id",
+		"gtfs_rt_trip_updates_stoptimes", "update_id INTEGER, arrival_time INTEGER, arrival_uncertainty INTEGER, arrival_delay INTEGER, departure_time INTEGER, departure_uncertainty INTEGER, departure_delay INTEGER, rship INTEGER, stop_id TEXT, stop_sequence INTEGER", "stop_id,update_id"
 	};
 	
 	private void clearData() throws SQLException {
