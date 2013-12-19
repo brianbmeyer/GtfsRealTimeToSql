@@ -44,6 +44,9 @@ public class GtfsRealTimeFeed {
 		return mFeedMessage;
 	}
 	
+	private static final String HTTPS = "https";
+	private static final String GZIP = "gzip";
+	
 	public void load() throws Exception {
 		String url = mUrl;
 		
@@ -55,7 +58,7 @@ public class GtfsRealTimeFeed {
 
 		HttpClientBuilder builder = HttpClientBuilder.create();
 
-		if (url.startsWith("https")) {
+		if (url.startsWith(HTTPS)) {
 			SSLContext sslContext = SSLContext.getInstance("SSL");
 			
 			sslContext.init(null, new TrustManager[] { new javax.net.ssl.X509TrustManager() {
@@ -86,7 +89,7 @@ public class GtfsRealTimeFeed {
 		httpClient = builder.build();
 		
 		HttpGet httpGet = new HttpGet(uri);
-		httpGet.setHeader("Accept-Encoding", "gzip");
+		httpGet.setHeader("Accept-Encoding", GZIP);
 
 		String username = mUsername;
 		String password = mPassword;
@@ -108,7 +111,7 @@ public class GtfsRealTimeFeed {
 
 		InputStream is;
 		
-		if (contentEncoding == null || !contentEncoding.getValue().equalsIgnoreCase("gzip")) {
+		if (contentEncoding == null || !contentEncoding.getValue().equalsIgnoreCase(GZIP)) {
 			is = httpEntity.getContent();
 		}
 		else {

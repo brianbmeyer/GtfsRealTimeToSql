@@ -314,7 +314,7 @@ public class GtfsRealTimeSqlRecorder {
 	}
 
 	private void recordTripUpdate(TripUpdate tripUpdate) throws SQLException {
-		System.err.println("Recording trip update");
+//		System.err.println("Recording trip update");
 
 		PreparedStatement stmt = mStatements.get(STTRIPUPDATE);
 
