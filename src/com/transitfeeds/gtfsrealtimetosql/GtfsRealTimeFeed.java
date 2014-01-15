@@ -52,7 +52,7 @@ public class GtfsRealTimeFeed {
 		
 		HttpClient httpClient;
 
-		System.err.println("Loading " + url);
+		System.err.print("Loading " + url + " ...");
 		
 		URI uri = new URI(url);
 
@@ -119,5 +119,7 @@ public class GtfsRealTimeFeed {
 		}
 
 		mFeedMessage = GtfsRealtime.FeedMessage.parseFrom(is);
+		
+		System.err.println(" done");
 	}
 }

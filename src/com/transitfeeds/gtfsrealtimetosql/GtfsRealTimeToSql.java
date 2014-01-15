@@ -74,18 +74,18 @@ public class GtfsRealTimeToSql {
 			Class.forName("org.sqlite.JDBC");
 		}
 		
-		Connection connection = DriverManager.getConnection(connStr, line.getOptionValue("dbusername"), line.getOptionValue("dbpassword"));
-		
-		GtfsRealTimeSqlRecorder recorder = new GtfsRealTimeSqlRecorder(connection);
-		FeedRunnerThread thread = new FeedRunnerThread(recorder, seconds * 1000);
-
 		for (int i = 0; i < urls.length; i++) {
+			Connection connection = DriverManager.getConnection(connStr, line.getOptionValue("dbusername"), line.getOptionValue("dbpassword"));
+		
+			GtfsRealTimeSqlRecorder recorder = new GtfsRealTimeSqlRecorder(connection);
+			FeedRunnerThread thread = new FeedRunnerThread(recorder, seconds * 1000);
+
 			GtfsRealTimeFeed feed = new GtfsRealTimeFeed(urls[i]);
 			feed.setCredentials(username, password);
 			thread.addFeed(feed);
+			
+			thread.start();		
 		}
-		
-		thread.start();		
 	}
 
 	public static void showHelp(Options options) {

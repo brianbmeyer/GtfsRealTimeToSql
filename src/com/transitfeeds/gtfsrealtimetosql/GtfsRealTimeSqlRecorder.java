@@ -181,8 +181,6 @@ public class GtfsRealTimeSqlRecorder {
 			throw new Exception("No position found");
 		}
 		
-		System.err.println("Recording vehicle position");
-		
 		PreparedStatement stmt = mStatements.get(STVEHICLE);
 
 		stmt.clearParameters();
@@ -314,8 +312,6 @@ public class GtfsRealTimeSqlRecorder {
 	}
 
 	private void recordTripUpdate(TripUpdate tripUpdate) throws SQLException {
-//		System.err.println("Recording trip update");
-
 		PreparedStatement stmt = mStatements.get(STTRIPUPDATE);
 
 		stmt.clearParameters();
@@ -493,8 +489,6 @@ public class GtfsRealTimeSqlRecorder {
 	}
 
 	private void recordAlert(Alert alert) throws SQLException {
-		System.err.println("Recording alert");
-
 		PreparedStatement stmt = mStatements.get(STALERT);
 
 		stmt.clearParameters();
