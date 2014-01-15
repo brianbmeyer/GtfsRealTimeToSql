@@ -139,8 +139,11 @@ public class GtfsRealTimeSqlRecorder {
 		System.err.println("Clearing tables");
 		
 		for (int i = from * 3; i <= to * 3; i += 3) {
+			String query = "DELETE FROM " + TABLES[i];
+			System.err.println(query);
+			
 			Statement stmt = mConnection.createStatement();
-			stmt.execute("DELETE FROM " + TABLES[i]);
+			stmt.execute(query);
 			stmt.close();
 		}
 	}
