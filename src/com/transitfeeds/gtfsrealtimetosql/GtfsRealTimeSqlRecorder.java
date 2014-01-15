@@ -51,7 +51,6 @@ public class GtfsRealTimeSqlRecorder {
 	public void begin() throws SQLException {
 		mAutoCommit = mConnection.getAutoCommit();
 		mConnection.setAutoCommit(false);
-		clearData();
 	}
 	
 	public void commit() throws SQLException
@@ -61,7 +60,36 @@ public class GtfsRealTimeSqlRecorder {
 	}
 	
 	public void record(FeedMessage feedMessage) throws Exception {
-
+		boolean hasAlerts = false;
+		boolean hasTripUpdates = false;
+		boolean hasVehiclePositions = false;
+		
+		for (FeedEntity entity : feedMessage.getEntityList()) {
+			if (entity.hasAlert()) {
+				hasAlerts = true;
+			}
+			
+			if (entity.hasTripUpdate()) {
+				hasTripUpdates = true;
+			}
+			
+			if (entity.hasVehicle()) {
+				hasVehiclePositions = true;
+			}
+		}
+		
+		if (hasAlerts) {
+			clearAlertsData();
+		}
+		
+		if (hasTripUpdates) {
+			clearTripUpdatesData();
+		}
+		
+		if (hasVehiclePositions) {
+			clearVehiclePositionsData();
+		}
+		
 		for (FeedEntity entity : feedMessage.getEntityList()) {
 			if (entity.hasAlert()) {
 				try {
@@ -95,10 +123,22 @@ public class GtfsRealTimeSqlRecorder {
 		"gtfs_rt_trip_updates_stoptimes", "update_id INTEGER, arrival_time INTEGER, arrival_uncertainty INTEGER, arrival_delay INTEGER, departure_time INTEGER, departure_uncertainty INTEGER, departure_delay INTEGER, rship INTEGER, stop_id TEXT, stop_sequence INTEGER", "stop_id,update_id"
 	};
 	
-	private void clearData() throws SQLException {
+	private void clearTripUpdatesData() throws SQLException {
+		clearData(4, 5);
+	}
+	
+	private void clearAlertsData() throws SQLException {
+		clearData(0, 2);
+	}
+	
+	private void clearVehiclePositionsData() throws SQLException {
+		clearData(3, 3);
+	}
+	
+	private void clearData(int from, int to) throws SQLException {
 		System.err.println("Clearing tables");
 		
-		for (int i = 0; i < TABLES.length; i += 3) {
+		for (int i = from * 3; i <= to * 3; i += 3) {
 			Statement stmt = mConnection.createStatement();
 			stmt.execute("DELETE FROM " + TABLES[i]);
 			stmt.close();
