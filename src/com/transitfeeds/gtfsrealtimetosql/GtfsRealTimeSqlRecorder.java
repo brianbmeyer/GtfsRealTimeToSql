@@ -51,6 +51,8 @@ public class GtfsRealTimeSqlRecorder {
 	public void begin() throws SQLException {
 		mAutoCommit = mConnection.getAutoCommit();
 		mConnection.setAutoCommit(false);
+		
+		resetUpdateId();
 	}
 	
 	public void commit() throws SQLException
@@ -95,6 +97,7 @@ public class GtfsRealTimeSqlRecorder {
 				try {
 					recordAlert(entity.getAlert());
 				} catch (SQLException e) {
+					e.printStackTrace();
 				}
 			}
 
@@ -102,6 +105,7 @@ public class GtfsRealTimeSqlRecorder {
 				try {
 					recordTripUpdate(entity.getTripUpdate());
 				} catch (Exception e) {
+					e.printStackTrace();
 				}
 			}
 
@@ -136,11 +140,11 @@ public class GtfsRealTimeSqlRecorder {
 	}
 
 	public static String[] TABLES = { 
-		"gtfs_rt_alerts", "alert_id INTEGER PRIMARY KEY, header TEXT, description TEXT, cause INTEGER, effect INTEGER", "",
+		"gtfs_rt_alerts", "alert_id INTEGER, header TEXT, description TEXT, cause INTEGER, effect INTEGER", "",
 		"gtfs_rt_alerts_timeranges", "alert_id INTEGER, start INTEGER, finish INTEGER", "",
 		"gtfs_rt_alerts_entities", "alert_id INTEGER, agency_id TEXT, route_id TEXT, route_type INTEGER, stop_id TEXT, trip_rship INTEGER, trip_start_date TEXT, trip_start_time TEXT, trip_id TEXT", "agency_id,route_id,stop_id,trip_id",
 		"gtfs_rt_vehicles", "congestion INTEGER, status INTEGER, sequence INTEGER, bearing REAL, odometer REAL, speed REAL, latitude REAL, longitude REAL, stop_id TEXT, ts INTEGER, trip_sr INTEGER, trip_date TEXT, trip_time TEXT, trip_id TEXT, vehicle_id TEXT, vehicle_label TEXT, vehicle_plate TEXT", "stop_id,trip_id",
-		"gtfs_rt_trip_updates", "update_id INTEGER PRIMARY KEY, ts INTEGER, trip_sr INTEGER, trip_date TEXT, trip_time TEXT, trip_id TEXT, route_id TEXT, vehicle_id TEXT, vehicle_label TEXT, vehicle_plate TEXT", "trip_id,route_id",
+		"gtfs_rt_trip_updates", "update_id INTEGER, ts INTEGER, trip_sr INTEGER, trip_date TEXT, trip_time TEXT, trip_id TEXT, route_id TEXT, vehicle_id TEXT, vehicle_label TEXT, vehicle_plate TEXT", "update_id,trip_id,route_id",
 		"gtfs_rt_trip_updates_stoptimes", "update_id INTEGER, arrival_time INTEGER, arrival_uncertainty INTEGER, arrival_delay INTEGER, departure_time INTEGER, departure_uncertainty INTEGER, departure_delay INTEGER, rship INTEGER, stop_id TEXT, stop_sequence INTEGER", "stop_id,update_id"
 	};
 	
@@ -197,7 +201,7 @@ public class GtfsRealTimeSqlRecorder {
 			stmt.close();
 			
 			String[] indexColumns = TABLES[i+2].split(",");
-			
+
 			if (indexColumns.length > 0) {
 				stmt = mConnection.createStatement();
 				
@@ -224,11 +228,11 @@ public class GtfsRealTimeSqlRecorder {
 	public static final String STTRIPUPDATE_STOPTIMEUPDATES = "STTRIPUPDATE_STOPTIMEUPDATES";
 
 	private void openStatements() throws SQLException {
-		mStatements.put(STALERT, mConnection.prepareStatement("INSERT INTO gtfs_rt_alerts (header, description, cause, effect) VALUES (?, ?, ?, ?)", Statement.RETURN_GENERATED_KEYS));
+		mStatements.put(STALERT, mConnection.prepareStatement("INSERT INTO gtfs_rt_alerts (alert_id, header, description, cause, effect) VALUES (?, ?, ?, ?, ?)", Statement.RETURN_GENERATED_KEYS));
 		mStatements.put(STALERT_TIMERANGES, mConnection.prepareStatement("INSERT INTO gtfs_rt_alerts_timeranges (alert_id, start, finish) VALUES (?, ?, ?)", Statement.RETURN_GENERATED_KEYS));
 		mStatements.put(STALERT_ENTITIES, mConnection.prepareStatement("INSERT INTO gtfs_rt_alerts_entities (alert_id, agency_id, route_id, route_type, stop_id, trip_rship, trip_start_date, trip_start_time, trip_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", Statement.RETURN_GENERATED_KEYS));
 		mStatements.put(STVEHICLE, mConnection.prepareStatement("INSERT INTO gtfs_rt_vehicles (congestion, status, sequence, bearing, odometer, speed, latitude, longitude, stop_id, ts, trip_sr, trip_date, trip_time, trip_id, vehicle_id, vehicle_label, vehicle_plate) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", Statement.RETURN_GENERATED_KEYS));
-		mStatements.put(STTRIPUPDATE, mConnection.prepareStatement("INSERT INTO gtfs_rt_trip_updates (ts, trip_sr, trip_date, trip_time, trip_id, route_id, vehicle_id, vehicle_label, vehicle_plate) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", Statement.RETURN_GENERATED_KEYS));
+		mStatements.put(STTRIPUPDATE, mConnection.prepareStatement("INSERT INTO gtfs_rt_trip_updates (update_id, ts, trip_sr, trip_date, trip_time, trip_id, route_id, vehicle_id, vehicle_label, vehicle_plate) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", Statement.RETURN_GENERATED_KEYS));
 		mStatements.put(STTRIPUPDATE_STOPTIMEUPDATES, mConnection.prepareStatement("INSERT INTO gtfs_rt_trip_updates_stoptimes (update_id, arrival_time, arrival_uncertainty, arrival_delay, departure_time, departure_uncertainty, departure_delay, rship, stop_id, stop_sequence) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", Statement.RETURN_GENERATED_KEYS));
 	}
 
@@ -374,107 +378,115 @@ public class GtfsRealTimeSqlRecorder {
 
 		stmt.execute();
 	}
+	
+	private int mUpdateId = 0;
+	
+	private void resetUpdateId()
+	{
+		mUpdateId = 0;
+	}
+	
+	private int getUpdateId()
+	{
+		return ++mUpdateId;
+	}
 
 	private void recordTripUpdate(TripUpdate tripUpdate) throws SQLException {
 		PreparedStatement stmt = mStatements.get(STTRIPUPDATE);
 
-		stmt.clearParameters();
+		int updateId = getUpdateId();
+		
+		stmt.setInt(1, updateId);
 
 		
 		if (tripUpdate.hasTimestamp()) {
-			stmt.setLong(1, tripUpdate.getTimestamp());
+			stmt.setLong(2, tripUpdate.getTimestamp());
 		}
 		else {
-			stmt.setNull(1, Types.INTEGER);
+			stmt.setNull(2, Types.INTEGER);
 		}
 
 		if (tripUpdate.hasTrip()) {
 			TripDescriptor trip = tripUpdate.getTrip();
 			
 			if (trip.hasScheduleRelationship()) {
-				stmt.setInt(2, trip.getScheduleRelationship().getNumber());
+				stmt.setInt(3, trip.getScheduleRelationship().getNumber());
 			}
 			else {
-				stmt.setNull(2, Types.INTEGER);
+				stmt.setNull(3, Types.INTEGER);
 			}
 			
 			if (trip.hasStartDate()) {
-				stmt.setString(3, trip.getStartDate());
-			}
-			else {
-				stmt.setNull(3, Types.VARCHAR);
-			}
-
-			if (trip.hasStartTime()) {
-				stmt.setString(4, trip.getStartTime());
+				stmt.setString(4, trip.getStartDate());
 			}
 			else {
 				stmt.setNull(4, Types.VARCHAR);
 			}
 
-			if (trip.hasTripId()) {
-				stmt.setString(5, trip.getTripId());
+			if (trip.hasStartTime()) {
+				stmt.setString(5, trip.getStartTime());
 			}
 			else {
 				stmt.setNull(5, Types.VARCHAR);
 			}
-			
-			if (trip.hasRouteId()) {
-				stmt.setString(6, trip.getRouteId());
+
+			if (trip.hasTripId()) {
+				stmt.setString(6, trip.getTripId());
 			}
 			else {
 				stmt.setNull(6, Types.VARCHAR);
 			}
+			
+			if (trip.hasRouteId()) {
+				stmt.setString(7, trip.getRouteId());
+			}
+			else {
+				stmt.setNull(7, Types.VARCHAR);
+			}
 		}
 		else {
-			stmt.setNull(2, Types.INTEGER);
-			stmt.setNull(3, Types.VARCHAR);
+			stmt.setNull(3, Types.INTEGER);
 			stmt.setNull(4, Types.VARCHAR);
 			stmt.setNull(5, Types.VARCHAR);
 			stmt.setNull(6, Types.VARCHAR);
+			stmt.setNull(7, Types.VARCHAR);
 		}
 		
 		if (tripUpdate.hasVehicle()) {
 			VehicleDescriptor vd = tripUpdate.getVehicle();
 			
 			if (vd.hasId()) {
-				stmt.setString(7, vd.getId());
+				stmt.setString(8, vd.getId());
 			}
 			else {
-				stmt.setNull(7, Types.INTEGER);
+				stmt.setNull(8, Types.INTEGER);
 			}
 			
 			if (vd.hasLabel()) {
-				stmt.setString(8, vd.getLabel());
-			}
-			else {
-				stmt.setNull(8, Types.VARCHAR);
-			}
-
-			if (vd.hasLicensePlate()) {
-				stmt.setString(9, vd.getLicensePlate());
+				stmt.setString(9, vd.getLabel());
 			}
 			else {
 				stmt.setNull(9, Types.VARCHAR);
 			}
+
+			if (vd.hasLicensePlate()) {
+				stmt.setString(10, vd.getLicensePlate());
+			}
+			else {
+				stmt.setNull(10, Types.VARCHAR);
+			}
 		}
 		else {
-			stmt.setNull(7, Types.INTEGER);
-			stmt.setNull(8, Types.VARCHAR);
+			stmt.setNull(8, Types.INTEGER);
 			stmt.setNull(9, Types.VARCHAR);
+			stmt.setNull(10, Types.VARCHAR);
 		}
 
 		stmt.addBatch();
 		
-		ResultSet rs = stmt.getGeneratedKeys();
-		rs.next();
-		
-		int updateId = rs.getInt(1);
-
 		stmt = mStatements.get(STTRIPUPDATE_STOPTIMEUPDATES);
 		
 		for (StopTimeUpdate stu : tripUpdate.getStopTimeUpdateList()) {
-			stmt.clearParameters();
 			stmt.setInt(1, updateId);
 
 			if (stu.hasArrival()) {
@@ -555,48 +567,44 @@ public class GtfsRealTimeSqlRecorder {
 	private void recordAlert(Alert alert) throws SQLException {
 		PreparedStatement stmt = mStatements.get(STALERT);
 
-		stmt.clearParameters();
+		int updateId = getUpdateId();
+		
+		stmt.setInt(1, updateId);
 
 		if (alert.hasHeaderText()) {
-			stmt.setString(1, getString(alert.getHeaderText()));
-		}
-		else {
-			stmt.setNull(1, Types.VARCHAR);
-		}
-
-		if (alert.hasDescriptionText()) {
-			stmt.setString(2, getString(alert.getDescriptionText()));
+			stmt.setString(2, getString(alert.getHeaderText()));
 		}
 		else {
 			stmt.setNull(2, Types.VARCHAR);
 		}
 
-		if (alert.hasCause()) {
-			stmt.setInt(3, alert.getCause().getNumber());
+		if (alert.hasDescriptionText()) {
+			stmt.setString(3, getString(alert.getDescriptionText()));
 		}
 		else {
-			stmt.setNull(3, Types.INTEGER);
+			stmt.setNull(3, Types.VARCHAR);
 		}
 
-		if (alert.hasEffect()) {
-			stmt.setInt(4, alert.getEffect().getNumber());
+		if (alert.hasCause()) {
+			stmt.setInt(4, alert.getCause().getNumber());
 		}
 		else {
 			stmt.setNull(4, Types.INTEGER);
 		}
 
+		if (alert.hasEffect()) {
+			stmt.setInt(5, alert.getEffect().getNumber());
+		}
+		else {
+			stmt.setNull(5, Types.INTEGER);
+		}
+
 		stmt.addBatch();
-
-		ResultSet rs = stmt.getGeneratedKeys();
-		rs.next();
-
-		int alertId = rs.getInt(1);
 
 		stmt = mStatements.get(STALERT_TIMERANGES);
 
 		for (TimeRange timeRange : alert.getActivePeriodList()) {
-			stmt.clearParameters();
-			stmt.setInt(1, alertId);
+			stmt.setInt(1, updateId);
 
 			if (timeRange.hasStart()) {
 				stmt.setLong(2, timeRange.getStart());
@@ -620,7 +628,7 @@ public class GtfsRealTimeSqlRecorder {
 		for (EntitySelector entity : alert.getInformedEntityList()) {
 			stmt.clearParameters();
 
-			stmt.setInt(1, alertId);
+			stmt.setInt(1, updateId);
 
 			if (entity.hasAgencyId()) {
 				stmt.setString(2, entity.getAgencyId());
