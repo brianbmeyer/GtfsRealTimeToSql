@@ -112,6 +112,27 @@ public class GtfsRealTimeSqlRecorder {
 				}
 			}
 		}
+		
+		if (hasAlerts) {
+			System.err.print("Committing alerts... ");
+			mStatements.get(STALERT).executeBatch();
+			mStatements.get(STALERT_ENTITIES).executeBatch();
+			mStatements.get(STALERT_TIMERANGES).executeBatch();
+			System.err.println("done");
+		}
+		
+		if (hasTripUpdates) {
+			System.err.print("Committing trip updates... ");
+			mStatements.get(STTRIPUPDATE).executeBatch();
+			mStatements.get(STTRIPUPDATE_STOPTIMEUPDATES).executeBatch();
+			System.err.println("done");
+		}
+		
+		if (hasVehiclePositions) {
+			System.err.print("Committing vehicle positions... ");
+			mStatements.get(STVEHICLE).executeBatch();
+			System.err.println("done");
+		}
 	}
 
 	public static String[] TABLES = { 
@@ -443,7 +464,7 @@ public class GtfsRealTimeSqlRecorder {
 			stmt.setNull(9, Types.VARCHAR);
 		}
 
-		stmt.execute();
+		stmt.addBatch();
 		
 		ResultSet rs = stmt.getGeneratedKeys();
 		rs.next();
@@ -527,7 +548,7 @@ public class GtfsRealTimeSqlRecorder {
 
 			stmt.setInt(10, stu.hasStopSequence() ? stu.getStopSequence() : -1);
 
-			stmt.execute();
+			stmt.addBatch();
 		}
 	}
 
@@ -564,7 +585,7 @@ public class GtfsRealTimeSqlRecorder {
 			stmt.setNull(4, Types.INTEGER);
 		}
 
-		stmt.execute();
+		stmt.addBatch();
 
 		ResultSet rs = stmt.getGeneratedKeys();
 		rs.next();
@@ -591,7 +612,7 @@ public class GtfsRealTimeSqlRecorder {
 				stmt.setNull(3, Types.INTEGER);
 			}
 
-			stmt.execute();
+			stmt.addBatch();
 		}
 
 		stmt = mStatements.get(STALERT_ENTITIES);
@@ -667,7 +688,7 @@ public class GtfsRealTimeSqlRecorder {
 				stmt.setNull(9, Types.VARCHAR);
 			}
 
-			stmt.execute();
+			stmt.addBatch();
 		}
 	}
 
