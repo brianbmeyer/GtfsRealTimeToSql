@@ -12,6 +12,10 @@ import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 
+import org.postgresql.copy.CopyIn;
+import org.postgresql.copy.CopyManager;
+import org.postgresql.core.BaseConnection;
+
 import com.google.transit.realtime.GtfsRealtime.Alert;
 import com.google.transit.realtime.GtfsRealtime.EntitySelector;
 import com.google.transit.realtime.GtfsRealtime.FeedEntity;
@@ -30,677 +34,1168 @@ import com.google.transit.realtime.GtfsRealtime.VehiclePosition.VehicleStopStatu
 
 public class GtfsRealTimeSqlRecorder {
 
-	private Connection mConnection;
-	private Map<String, PreparedStatement> mStatements = new HashMap<String, PreparedStatement>();
-
-	public GtfsRealTimeSqlRecorder(Connection connection) {
-		mConnection = connection;
-	}
-
-	public void startup() throws Exception {
-		createTables();
-		openStatements();
-	}
-	
-	public void shutdown() throws Exception {
-		closeStatements();
-	}
-
-	private boolean mAutoCommit;
-	
-	public void begin() throws SQLException {
-		mAutoCommit = mConnection.getAutoCommit();
-		mConnection.setAutoCommit(false);
-		
-		resetUpdateId();
-	}
-	
-	public void commit() throws SQLException
-	{
-		mConnection.commit();
-		mConnection.setAutoCommit(mAutoCommit);
-	}
-	
-	public void record(FeedMessage feedMessage) throws Exception {
-		boolean hasAlerts = false;
-		boolean hasTripUpdates = false;
-		boolean hasVehiclePositions = false;
-		
-		for (FeedEntity entity : feedMessage.getEntityList()) {
-			if (entity.hasAlert()) {
-				hasAlerts = true;
-			}
-			
-			if (entity.hasTripUpdate()) {
-				hasTripUpdates = true;
-			}
-			
-			if (entity.hasVehicle()) {
-				hasVehiclePositions = true;
-			}
-		}
-		
-		if (hasAlerts) {
-			clearAlertsData();
-		}
-		
-		if (hasTripUpdates) {
-			clearTripUpdatesData();
-		}
-		
-		if (hasVehiclePositions) {
-			clearVehiclePositionsData();
-		}
-		
-		for (FeedEntity entity : feedMessage.getEntityList()) {
-			if (entity.hasAlert()) {
-				try {
-					recordAlert(entity.getAlert());
-				} catch (SQLException e) {
-					e.printStackTrace();
-				}
-			}
-
-			if (entity.hasTripUpdate()) {
-				try {
-					recordTripUpdate(entity.getTripUpdate());
-				} catch (Exception e) {
-					e.printStackTrace();
-				}
-			}
-
-			if (entity.hasVehicle()) {
-				try {
-					recordVehicle(entity.getVehicle());
-				} catch (Exception e) {
-				}
-			}
-		}
-		
-		if (hasAlerts) {
-			System.err.print("Committing alerts... ");
-			mStatements.get(STALERT).executeBatch();
-			mStatements.get(STALERT_ENTITIES).executeBatch();
-			mStatements.get(STALERT_TIMERANGES).executeBatch();
-			System.err.println("done");
-		}
-		
-		if (hasTripUpdates) {
-			System.err.print("Committing trip updates... ");
-			mStatements.get(STTRIPUPDATE).executeBatch();
-			mStatements.get(STTRIPUPDATE_STOPTIMEUPDATES).executeBatch();
-			System.err.println("done");
-		}
-		
-		if (hasVehiclePositions) {
-			System.err.print("Committing vehicle positions... ");
-			mStatements.get(STVEHICLE).executeBatch();
-			System.err.println("done");
-		}
-	}
-
-	public static String[] TABLES = { 
-		"gtfs_rt_alerts", "alert_id INTEGER, header TEXT, description TEXT, cause INTEGER, effect INTEGER", "",
-		"gtfs_rt_alerts_timeranges", "alert_id INTEGER, start INTEGER, finish INTEGER", "",
-		"gtfs_rt_alerts_entities", "alert_id INTEGER, agency_id TEXT, route_id TEXT, route_type INTEGER, stop_id TEXT, trip_rship INTEGER, trip_start_date TEXT, trip_start_time TEXT, trip_id TEXT", "agency_id,route_id,stop_id,trip_id",
-		"gtfs_rt_vehicles", "congestion INTEGER, status INTEGER, sequence INTEGER, bearing REAL, odometer REAL, speed REAL, latitude REAL, longitude REAL, stop_id TEXT, ts INTEGER, trip_sr INTEGER, trip_date TEXT, trip_time TEXT, trip_id TEXT, vehicle_id TEXT, vehicle_label TEXT, vehicle_plate TEXT", "stop_id,trip_id",
-		"gtfs_rt_trip_updates", "update_id INTEGER, ts INTEGER, trip_sr INTEGER, trip_date TEXT, trip_time TEXT, trip_id TEXT, route_id TEXT, vehicle_id TEXT, vehicle_label TEXT, vehicle_plate TEXT", "update_id,trip_id,route_id",
-		"gtfs_rt_trip_updates_stoptimes", "update_id INTEGER, arrival_time INTEGER, arrival_uncertainty INTEGER, arrival_delay INTEGER, departure_time INTEGER, departure_uncertainty INTEGER, departure_delay INTEGER, rship INTEGER, stop_id TEXT, stop_sequence INTEGER", "stop_id,update_id"
-	};
-	
-	private void clearTripUpdatesData() throws SQLException {
-		clearData(4, 5);
-	}
-	
-	private void clearAlertsData() throws SQLException {
-		clearData(0, 2);
-	}
-	
-	private void clearVehiclePositionsData() throws SQLException {
-		clearData(3, 3);
-	}
-	
-	private void clearData(int from, int to) throws SQLException {
-		System.err.println("Clearing tables");
-		
-		for (int i = from * 3; i <= to * 3; i += 3) {
-			String query = "DELETE FROM " + TABLES[i];
-			System.err.println(query);
-			
-			Statement stmt = mConnection.createStatement();
-			stmt.execute(query);
-			stmt.close();
-		}
-	}
-
-	private void createTables() throws SQLException {
-		DatabaseMetaData meta = mConnection.getMetaData();
-		
-		ResultSet tables = meta.getTables(null, null, null, null);
-
-		Set<String> tableNames = new HashSet<String>();
-		
-		while (tables.next()) {
-			tableNames.add(tables.getString("TABLE_NAME"));
-		}
-
-		for (int i = 0; i < TABLES.length; i += 3) {
-			String tableName = TABLES[i];
-			
-			if (tableNames.contains(tableName)) {
-				continue;
-			}
-
-			System.err.println("Creating table " + tableName);
-
-			String create = TABLES[i+1];
-			create = create.replace("INTEGER PRIMARY KEY", "SERIAL PRIMARY KEY");
-			
-			Statement stmt = mConnection.createStatement();
-			stmt.execute(String.format("CREATE TABLE %s (%s)", tableName, create));
-			stmt.close();
-			
-			String[] indexColumns = TABLES[i+2].split(",");
-
-			if (indexColumns.length > 0) {
-				stmt = mConnection.createStatement();
-				
-				for (int j = 0; j < indexColumns.length; j++) {
-					String column = indexColumns[j];
-							
-					if (column.length() == 0) {
-						continue;
-					}
-							
-					stmt.execute(String.format("CREATE INDEX %s_%s ON %s (%s)", tableName, column, tableName, column));
-				}
-				
-				stmt.close();
-			}
-		}
-	}
-
-	public static final String STALERT = "STALERT";
-	public static final String STALERT_TIMERANGES = "STALERT_TIMERANGES";
-	public static final String STALERT_ENTITIES = "STALERT_ENTITIES";
-	public static final String STVEHICLE = "STVEHICLE";
-	public static final String STTRIPUPDATE = "STTRIPUPDATE";
-	public static final String STTRIPUPDATE_STOPTIMEUPDATES = "STTRIPUPDATE_STOPTIMEUPDATES";
-
-	private void openStatements() throws SQLException {
-		mStatements.put(STALERT, mConnection.prepareStatement("INSERT INTO gtfs_rt_alerts (alert_id, header, description, cause, effect) VALUES (?, ?, ?, ?, ?)", Statement.RETURN_GENERATED_KEYS));
-		mStatements.put(STALERT_TIMERANGES, mConnection.prepareStatement("INSERT INTO gtfs_rt_alerts_timeranges (alert_id, start, finish) VALUES (?, ?, ?)", Statement.RETURN_GENERATED_KEYS));
-		mStatements.put(STALERT_ENTITIES, mConnection.prepareStatement("INSERT INTO gtfs_rt_alerts_entities (alert_id, agency_id, route_id, route_type, stop_id, trip_rship, trip_start_date, trip_start_time, trip_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", Statement.RETURN_GENERATED_KEYS));
-		mStatements.put(STVEHICLE, mConnection.prepareStatement("INSERT INTO gtfs_rt_vehicles (congestion, status, sequence, bearing, odometer, speed, latitude, longitude, stop_id, ts, trip_sr, trip_date, trip_time, trip_id, vehicle_id, vehicle_label, vehicle_plate) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", Statement.RETURN_GENERATED_KEYS));
-		mStatements.put(STTRIPUPDATE, mConnection.prepareStatement("INSERT INTO gtfs_rt_trip_updates (update_id, ts, trip_sr, trip_date, trip_time, trip_id, route_id, vehicle_id, vehicle_label, vehicle_plate) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", Statement.RETURN_GENERATED_KEYS));
-		mStatements.put(STTRIPUPDATE_STOPTIMEUPDATES, mConnection.prepareStatement("INSERT INTO gtfs_rt_trip_updates_stoptimes (update_id, arrival_time, arrival_uncertainty, arrival_delay, departure_time, departure_uncertainty, departure_delay, rship, stop_id, stop_sequence) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", Statement.RETURN_GENERATED_KEYS));
-	}
-
-	private void closeStatements() throws SQLException {
-		for (PreparedStatement stmt : mStatements.values()) {
-			stmt.close();
-		}
-
-		mStatements = new HashMap<String, PreparedStatement>();
-	}
-
-	private void recordVehicle(VehiclePosition vehicle) throws SQLException, Exception {
-		if (!vehicle.hasPosition()) {
-			throw new Exception("No position found");
-		}
-		
-		PreparedStatement stmt = mStatements.get(STVEHICLE);
-
-		stmt.clearParameters();
-
-		stmt.setInt(1, vehicle.hasCongestionLevel() ? vehicle.getCongestionLevel().getNumber() : CongestionLevel.UNKNOWN_CONGESTION_LEVEL_VALUE);
-		stmt.setInt(2, vehicle.hasCurrentStatus() ? vehicle.getCurrentStatus().getNumber() : VehicleStopStatus.IN_TRANSIT_TO_VALUE);
-		stmt.setInt(3, vehicle.hasCurrentStopSequence() ? vehicle.getCurrentStopSequence() : -1);
-		
-		Position pos = vehicle.getPosition();
-		
-		if (pos.hasBearing()) {
-			stmt.setFloat(4, pos.getBearing());
-		}
-		else {
-			stmt.setNull(4, Types.FLOAT);
-		}
-
-		if (pos.hasOdometer()) {
-			stmt.setDouble(5, pos.getOdometer());
-		}
-		else {
-			stmt.setNull(5, Types.DOUBLE);
-		}
-
-		if (pos.hasSpeed()) {
-			stmt.setFloat(6, pos.getSpeed());
-		}
-		else {
-			stmt.setNull(6, Types.FLOAT);
-		}
-
-		if (pos.hasLatitude()) {
-			stmt.setFloat(7, pos.getLatitude());
-		}
-		else {
-			stmt.setNull(7, Types.FLOAT);
-		}
-
-		if (pos.hasLongitude()) {
-			stmt.setFloat(8, pos.getLongitude());
-		}
-		else {
-			stmt.setNull(8, Types.FLOAT);
-		}
-		
-		if (vehicle.hasStopId()) {
-			stmt.setString(9, vehicle.getStopId());
-		}
-		else {
-			stmt.setNull(9, Types.VARCHAR);
-		}
-
-		if (vehicle.hasTimestamp()) {
-			stmt.setLong(10, vehicle.getTimestamp());
-		}
-		else {
-			stmt.setNull(10, Types.INTEGER);
-		}
-		
-		if (vehicle.hasTrip()) {
-			TripDescriptor trip = vehicle.getTrip();
-			
-			if (trip.hasScheduleRelationship()) {
-				stmt.setInt(11, trip.getScheduleRelationship().getNumber());
-			}
-			else {
-				stmt.setNull(11, Types.INTEGER);
-			}
-
-			if (trip.hasStartDate()) {
-				stmt.setString(12, trip.getStartDate());
-			}
-			else {
-				stmt.setNull(12, Types.VARCHAR);
-			}
-			
-			if (trip.hasStartTime()) {
-				stmt.setString(13, trip.getStartTime());
-			}
-			else {
-				stmt.setNull(13, Types.VARCHAR);
-			}
-
-			if (trip.hasTripId()) {
-				stmt.setString(14, trip.getTripId());
-			}
-			else {
-				stmt.setNull(14, Types.VARCHAR);
-			}
-		}
-		else {
-			stmt.setNull(11, Types.INTEGER);
-			stmt.setNull(12, Types.VARCHAR);
-			stmt.setNull(13, Types.VARCHAR);
-			stmt.setNull(14, Types.VARCHAR);
-		}
-		
-		if (vehicle.hasVehicle()) {
-			VehicleDescriptor vd = vehicle.getVehicle();
-			
-			if (vd.hasId()) {
-				stmt.setString(15, vd.getId());
-			}
-			else {
-				stmt.setNull(15, Types.VARCHAR);
-			}
-
-			if (vd.hasLabel()) {
-				stmt.setString(16, vd.getLabel());
-			}
-			else {
-				stmt.setNull(16, Types.VARCHAR);
-			}
-
-			if (vd.hasLicensePlate()) {
-				stmt.setString(17, vd.getLicensePlate());
-			}
-			else {
-				stmt.setNull(17, Types.VARCHAR);
-			}
-		}
-		else {
-			stmt.setNull(15, Types.VARCHAR);
-			stmt.setNull(16, Types.VARCHAR);
-			stmt.setNull(17, Types.VARCHAR);
-		}
-
-		stmt.execute();
-	}
-	
-	private int mUpdateId = 0;
-	
-	private void resetUpdateId()
-	{
-		mUpdateId = 0;
-	}
-	
-	private int getUpdateId()
-	{
-		return ++mUpdateId;
-	}
-
-	private void recordTripUpdate(TripUpdate tripUpdate) throws SQLException {
-		PreparedStatement stmt = mStatements.get(STTRIPUPDATE);
-
-		int updateId = getUpdateId();
-		
-		stmt.setInt(1, updateId);
-
-		
-		if (tripUpdate.hasTimestamp()) {
-			stmt.setLong(2, tripUpdate.getTimestamp());
-		}
-		else {
-			stmt.setNull(2, Types.INTEGER);
-		}
-
-		if (tripUpdate.hasTrip()) {
-			TripDescriptor trip = tripUpdate.getTrip();
-			
-			if (trip.hasScheduleRelationship()) {
-				stmt.setInt(3, trip.getScheduleRelationship().getNumber());
-			}
-			else {
-				stmt.setNull(3, Types.INTEGER);
-			}
-			
-			if (trip.hasStartDate()) {
-				stmt.setString(4, trip.getStartDate());
-			}
-			else {
-				stmt.setNull(4, Types.VARCHAR);
-			}
-
-			if (trip.hasStartTime()) {
-				stmt.setString(5, trip.getStartTime());
-			}
-			else {
-				stmt.setNull(5, Types.VARCHAR);
-			}
-
-			if (trip.hasTripId()) {
-				stmt.setString(6, trip.getTripId());
-			}
-			else {
-				stmt.setNull(6, Types.VARCHAR);
-			}
-			
-			if (trip.hasRouteId()) {
-				stmt.setString(7, trip.getRouteId());
-			}
-			else {
-				stmt.setNull(7, Types.VARCHAR);
-			}
-		}
-		else {
-			stmt.setNull(3, Types.INTEGER);
-			stmt.setNull(4, Types.VARCHAR);
-			stmt.setNull(5, Types.VARCHAR);
-			stmt.setNull(6, Types.VARCHAR);
-			stmt.setNull(7, Types.VARCHAR);
-		}
-		
-		if (tripUpdate.hasVehicle()) {
-			VehicleDescriptor vd = tripUpdate.getVehicle();
-			
-			if (vd.hasId()) {
-				stmt.setString(8, vd.getId());
-			}
-			else {
-				stmt.setNull(8, Types.INTEGER);
-			}
-			
-			if (vd.hasLabel()) {
-				stmt.setString(9, vd.getLabel());
-			}
-			else {
-				stmt.setNull(9, Types.VARCHAR);
-			}
-
-			if (vd.hasLicensePlate()) {
-				stmt.setString(10, vd.getLicensePlate());
-			}
-			else {
-				stmt.setNull(10, Types.VARCHAR);
-			}
-		}
-		else {
-			stmt.setNull(8, Types.INTEGER);
-			stmt.setNull(9, Types.VARCHAR);
-			stmt.setNull(10, Types.VARCHAR);
-		}
-
-		stmt.addBatch();
-		
-		stmt = mStatements.get(STTRIPUPDATE_STOPTIMEUPDATES);
-		
-		for (StopTimeUpdate stu : tripUpdate.getStopTimeUpdateList()) {
-			stmt.setInt(1, updateId);
-
-			if (stu.hasArrival()) {
-				StopTimeEvent ste = stu.getArrival();
-				
-				if (ste.hasTime()) {
-					stmt.setLong(2, ste.getTime());
-				}
-				else {
-					stmt.setNull(2, Types.INTEGER);
-				}
-
-				if (ste.hasUncertainty()) {
-					stmt.setInt(3, ste.getUncertainty());
-				}
-				else {
-					stmt.setNull(3, Types.INTEGER);
-				}
-				
-				if (ste.hasDelay()) {
-					stmt.setInt(4, ste.getDelay());
-				}
-				else {
-					stmt.setNull(4, Types.INTEGER);
-				}
-			}
-			else {
-				stmt.setNull(2, Types.INTEGER);
-				stmt.setNull(3, Types.INTEGER);
-				stmt.setNull(4, Types.INTEGER);
-			}
-			
-			if (stu.hasDeparture()) {
-				StopTimeEvent ste = stu.getDeparture();
-				
-				if (ste.hasTime()) {
-					stmt.setLong(5, ste.getTime());
-				}
-				else {
-					stmt.setNull(5, Types.INTEGER);
-				}
-
-				if (ste.hasUncertainty()) {
-					stmt.setInt(6, ste.getUncertainty());
-				}
-				else {
-					stmt.setNull(6, Types.INTEGER);
-				}
-
-				if (ste.hasDelay()) {
-					stmt.setInt(7, ste.getDelay());
-				}
-				else {
-					stmt.setNull(7, Types.INTEGER);
-				}
-			}
-			else {
-				stmt.setNull(5, Types.INTEGER);
-				stmt.setNull(6, Types.INTEGER);
-				stmt.setNull(7, Types.INTEGER);
-			}
-			
-			stmt.setInt(8, stu.hasScheduleRelationship() ? stu.getScheduleRelationship().getNumber() : com.google.transit.realtime.GtfsRealtime.TripUpdate.StopTimeUpdate.ScheduleRelationship.SCHEDULED_VALUE);
-			
-			if (stu.hasStopId()) {
-				stmt.setString(9, stu.getStopId());
-			}
-			else {
-				stmt.setNull(9, Types.VARCHAR);
-			}
-
-			stmt.setInt(10, stu.hasStopSequence() ? stu.getStopSequence() : -1);
-
-			stmt.addBatch();
-		}
-	}
-
-	private void recordAlert(Alert alert) throws SQLException {
-		PreparedStatement stmt = mStatements.get(STALERT);
-
-		int updateId = getUpdateId();
-		
-		stmt.setInt(1, updateId);
-
-		if (alert.hasHeaderText()) {
-			stmt.setString(2, getString(alert.getHeaderText()));
-		}
-		else {
-			stmt.setNull(2, Types.VARCHAR);
-		}
-
-		if (alert.hasDescriptionText()) {
-			stmt.setString(3, getString(alert.getDescriptionText()));
-		}
-		else {
-			stmt.setNull(3, Types.VARCHAR);
-		}
-
-		if (alert.hasCause()) {
-			stmt.setInt(4, alert.getCause().getNumber());
-		}
-		else {
-			stmt.setNull(4, Types.INTEGER);
-		}
-
-		if (alert.hasEffect()) {
-			stmt.setInt(5, alert.getEffect().getNumber());
-		}
-		else {
-			stmt.setNull(5, Types.INTEGER);
-		}
-
-		stmt.addBatch();
-
-		stmt = mStatements.get(STALERT_TIMERANGES);
-
-		for (TimeRange timeRange : alert.getActivePeriodList()) {
-			stmt.setInt(1, updateId);
-
-			if (timeRange.hasStart()) {
-				stmt.setLong(2, timeRange.getStart());
-			}
-			else {
-				stmt.setNull(2, Types.INTEGER);
-			}
-
-			if (timeRange.hasEnd()) {
-				stmt.setLong(3, timeRange.getEnd());
-			}
-			else {
-				stmt.setNull(3, Types.INTEGER);
-			}
-
-			stmt.addBatch();
-		}
-
-		stmt = mStatements.get(STALERT_ENTITIES);
-
-		for (EntitySelector entity : alert.getInformedEntityList()) {
-			stmt.clearParameters();
-
-			stmt.setInt(1, updateId);
-
-			if (entity.hasAgencyId()) {
-				stmt.setString(2, entity.getAgencyId());
-			}
-			else {
-				stmt.setNull(2, Types.VARCHAR);
-			}
-
-			if (entity.hasRouteId()) {
-				stmt.setString(3, entity.getRouteId());
-			}
-			else {
-				stmt.setNull(3, Types.VARCHAR);
-			}
-
-			if (entity.hasRouteType()) {
-				stmt.setInt(4, entity.getRouteType());
-			}
-			else {
-				stmt.setNull(4, Types.INTEGER);
-			}
-
-			if (entity.hasStopId()) {
-				stmt.setString(5, entity.getStopId());
-			}
-			else {
-				stmt.setNull(5, Types.VARCHAR);
-			}
-
-			if (entity.hasTrip()) {
-				TripDescriptor trip = entity.getTrip();
-
-				if (trip.hasScheduleRelationship()) {
-					stmt.setInt(6, trip.getScheduleRelationship().getNumber());
-				}
-				else {
-					stmt.setNull(6, Types.INTEGER);
-				}
-
-				if (trip.hasStartDate()) {
-					stmt.setString(7, trip.getStartDate());
-				}
-				else {
-					stmt.setNull(7, Types.VARCHAR);
-				}
-
-				if (trip.hasStartTime()) {
-					stmt.setString(8, trip.getStartTime());
-				}
-				else {
-					stmt.setNull(8, Types.VARCHAR);
-				}
-
-				if (trip.hasTripId()) {
-					stmt.setString(9, trip.getTripId());
-				}
-				else {
-					stmt.setNull(9, Types.VARCHAR);
-				}
-			}
-			else {
-				stmt.setNull(6, Types.INTEGER);
-				stmt.setNull(7, Types.VARCHAR);
-				stmt.setNull(8, Types.VARCHAR);
-				stmt.setNull(9, Types.VARCHAR);
-			}
-
-			stmt.addBatch();
-		}
-	}
-
-	private String getString(TranslatedString str) {
-		return str.getTranslation(0).getText();
-	}
+    private Connection                     mConnection;
+    private Map<String, PreparedStatement> mStatements    = new HashMap<String, PreparedStatement>();
+
+    private static final String            COPY_SEPARATOR = ",";
+
+    public GtfsRealTimeSqlRecorder(Connection connection) {
+        mConnection = connection;
+    }
+
+    public void startup() throws Exception {
+        createTables();
+        openStatements();
+    }
+
+    public void shutdown() throws Exception {
+        closeStatements();
+    }
+
+    private boolean mAutoCommit;
+
+    public void begin() throws SQLException {
+        mAutoCommit = mConnection.getAutoCommit();
+        mConnection.setAutoCommit(false);
+
+        resetUpdateId();
+    }
+
+    public void commit() throws SQLException {
+        mConnection.commit();
+        mConnection.setAutoCommit(mAutoCommit);
+    }
+
+    public void record(FeedMessage feedMessage) throws Exception {
+        boolean hasAlerts = false;
+        boolean hasTripUpdates = false;
+        boolean hasVehiclePositions = false;
+
+        for (FeedEntity entity : feedMessage.getEntityList()) {
+            if (entity.hasAlert()) {
+                hasAlerts = true;
+            }
+
+            if (entity.hasTripUpdate()) {
+                hasTripUpdates = true;
+            }
+
+            if (entity.hasVehicle()) {
+                hasVehiclePositions = true;
+            }
+        }
+
+        System.err.println("Clearing tables...");
+
+        if (hasAlerts) {
+            clearAlertsData();
+        }
+
+        if (hasTripUpdates) {
+            clearTripUpdatesData();
+        }
+
+        if (hasVehiclePositions) {
+            clearVehiclePositionsData();
+        }
+
+        System.err.println("Finished clearing tables");
+
+        boolean useCopy = mConnection instanceof BaseConnection;
+
+        CopyManager cm = null;
+        DataCopier tuCopier = null;
+        DataCopier stCopier = null;
+        DataCopier vpCopier = null;
+
+        if (useCopy) {
+            cm = new CopyManager((BaseConnection) mConnection);
+            tuCopier = new DataCopier();
+            stCopier = new DataCopier();
+            vpCopier = new DataCopier();
+        }
+
+        for (FeedEntity entity : feedMessage.getEntityList()) {
+            if (entity.hasAlert()) {
+                try {
+                    recordAlert(entity.getAlert());
+                } catch (SQLException e) {
+                    e.printStackTrace();
+                }
+            }
+
+            if (entity.hasTripUpdate()) {
+                try {
+                    recordTripUpdate(entity.getTripUpdate(), tuCopier, stCopier);
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+            }
+
+            if (entity.hasVehicle()) {
+                try {
+                    recordVehicle(entity.getVehicle(), vpCopier);
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+            }
+        }
+
+        if (hasAlerts) {
+            System.err.print("Committing alerts... ");
+            mStatements.get(STALERT).executeBatch();
+            mStatements.get(STALERT_ENTITIES).executeBatch();
+            mStatements.get(STALERT_TIMERANGES).executeBatch();
+            System.err.println("done");
+        }
+
+        if (hasTripUpdates) {
+            System.err.print("Committing trip updates... ");
+
+            if (tuCopier == null) {
+                mStatements.get(STTRIPUPDATE).executeBatch();
+            }
+            else if (tuCopier.size() > 0) {
+                CopyIn copier = cm.copyIn(COPY_TRIP_UPDATES);
+                tuCopier.write(copier, COPY_SEPARATOR);
+                copier.endCopy();
+            }
+
+            if (stCopier == null) {
+                mStatements.get(STTRIPUPDATE_STOPTIMEUPDATES).executeBatch();
+            }
+            else if (stCopier.size() > 0){
+                CopyIn copier = cm.copyIn(COPY_TRIP_UPDATES_STOP_TIMES);
+                stCopier.write(copier, COPY_SEPARATOR);
+                copier.endCopy();
+            }
+
+            System.err.println("done");
+
+        }
+
+        if (hasVehiclePositions) {
+            System.err.print("Committing vehicle positions... ");
+
+            if (vpCopier == null) {
+                mStatements.get(STVEHICLE).executeBatch();
+            }
+            else if (vpCopier.size() > 0) {
+                CopyIn copier = cm.copyIn(COPY_VEHICLE_POSITIONS);
+                vpCopier.write(copier, COPY_SEPARATOR);
+                copier.endCopy();
+            }
+
+            System.err.println("done");
+        }
+    }
+
+    public static String[] TABLES = {
+            "gtfs_rt_alerts",
+            "alert_id INTEGER, header TEXT, description TEXT, cause INTEGER, effect INTEGER",
+            "",
+            "gtfs_rt_alerts_timeranges",
+            "alert_id INTEGER, start INTEGER, finish INTEGER",
+            "",
+            "gtfs_rt_alerts_entities",
+            "alert_id INTEGER, agency_id TEXT, route_id TEXT, route_type INTEGER, stop_id TEXT, trip_rship INTEGER, trip_start_date TEXT, trip_start_time TEXT, trip_id TEXT",
+            "agency_id,route_id,stop_id,trip_id",
+            "gtfs_rt_vehicles",
+            "congestion INTEGER, status INTEGER, sequence INTEGER, bearing REAL, odometer REAL, speed REAL, latitude REAL, longitude REAL, stop_id TEXT, ts INTEGER, trip_sr INTEGER, trip_date TEXT, trip_time TEXT, trip_id TEXT, vehicle_id TEXT, vehicle_label TEXT, vehicle_plate TEXT",
+            "stop_id,trip_id",
+            "gtfs_rt_trip_updates",
+            "update_id INTEGER, ts INTEGER, trip_sr INTEGER, trip_date TEXT, trip_time TEXT, trip_id TEXT, route_id TEXT, vehicle_id TEXT, vehicle_label TEXT, vehicle_plate TEXT",
+            "update_id,trip_id,route_id",
+            "gtfs_rt_trip_updates_stoptimes",
+            "update_id INTEGER, arrival_time INTEGER, arrival_uncertainty INTEGER, arrival_delay INTEGER, departure_time INTEGER, departure_uncertainty INTEGER, departure_delay INTEGER, rship INTEGER, stop_id TEXT, stop_sequence INTEGER",
+            "stop_id,update_id"  };
+
+    private void clearTripUpdatesData() throws SQLException {
+        clearData(4, 5);
+    }
+
+    private void clearAlertsData() throws SQLException {
+        clearData(0, 2);
+    }
+
+    private void clearVehiclePositionsData() throws SQLException {
+        clearData(3, 3);
+    }
+
+    private void clearData(int from, int to) throws SQLException {
+        for (int i = from * 3; i <= to * 3; i += 3) {
+            String query = "DELETE FROM " + TABLES[i];
+            System.err.println(query);
+
+            Statement stmt = mConnection.createStatement();
+            stmt.execute(query);
+            stmt.close();
+        }
+    }
+
+    private void createTables() throws SQLException {
+        DatabaseMetaData meta = mConnection.getMetaData();
+
+        ResultSet tables = meta.getTables(null, null, null, null);
+
+        Set<String> tableNames = new HashSet<String>();
+
+        while (tables.next()) {
+            tableNames.add(tables.getString("TABLE_NAME"));
+        }
+
+        for (int i = 0; i < TABLES.length; i += 3) {
+            String tableName = TABLES[i];
+
+            if (tableNames.contains(tableName)) {
+                continue;
+            }
+
+            System.err.println("Creating table " + tableName);
+
+            String create = TABLES[i + 1];
+            create = create.replace("INTEGER PRIMARY KEY", "SERIAL PRIMARY KEY");
+
+            Statement stmt = mConnection.createStatement();
+            stmt.execute(String.format("CREATE TABLE %s (%s)", tableName, create));
+            stmt.close();
+
+            String[] indexColumns = TABLES[i + 2].split(",");
+
+            if (indexColumns.length > 0) {
+                stmt = mConnection.createStatement();
+
+                for (int j = 0; j < indexColumns.length; j++) {
+                    String column = indexColumns[j];
+
+                    if (column.length() == 0) {
+                        continue;
+                    }
+
+                    stmt.execute(String.format("CREATE INDEX %s_%s ON %s (%s)", tableName, column, tableName, column));
+                }
+
+                stmt.close();
+            }
+        }
+    }
+
+    public static final String STALERT                      = "STALERT";
+    public static final String STALERT_TIMERANGES           = "STALERT_TIMERANGES";
+    public static final String STALERT_ENTITIES             = "STALERT_ENTITIES";
+    public static final String STVEHICLE                    = "STVEHICLE";
+    public static final String STTRIPUPDATE                 = "STTRIPUPDATE";
+    public static final String STTRIPUPDATE_STOPTIMEUPDATES = "STTRIPUPDATE_STOPTIMEUPDATES";
+
+    private void openStatements() throws SQLException {
+        mStatements.put(STALERT, mConnection.prepareStatement(
+                "INSERT INTO gtfs_rt_alerts (alert_id, header, description, cause, effect) VALUES (?, ?, ?, ?, ?)",
+                Statement.RETURN_GENERATED_KEYS));
+        mStatements.put(STALERT_TIMERANGES, mConnection.prepareStatement(
+                "INSERT INTO gtfs_rt_alerts_timeranges (alert_id, start, finish) VALUES (?, ?, ?)", Statement.RETURN_GENERATED_KEYS));
+        mStatements
+                .put(STALERT_ENTITIES,
+                        mConnection
+                                .prepareStatement(
+                                        "INSERT INTO gtfs_rt_alerts_entities (alert_id, agency_id, route_id, route_type, stop_id, trip_rship, trip_start_date, trip_start_time, trip_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                                        Statement.RETURN_GENERATED_KEYS));
+        mStatements
+                .put(STVEHICLE,
+                        mConnection
+                                .prepareStatement(
+                                        "INSERT INTO gtfs_rt_vehicles (congestion, status, sequence, bearing, odometer, speed, latitude, longitude, stop_id, ts, trip_sr, trip_date, trip_time, trip_id, vehicle_id, vehicle_label, vehicle_plate) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                                        Statement.RETURN_GENERATED_KEYS));
+        mStatements
+                .put(STTRIPUPDATE,
+                        mConnection
+                                .prepareStatement(
+                                        "INSERT INTO gtfs_rt_trip_updates (update_id, ts, trip_sr, trip_date, trip_time, trip_id, route_id, vehicle_id, vehicle_label, vehicle_plate) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                                        Statement.RETURN_GENERATED_KEYS));
+        mStatements
+                .put(STTRIPUPDATE_STOPTIMEUPDATES,
+                        mConnection
+                                .prepareStatement(
+                                        "INSERT INTO gtfs_rt_trip_updates_stoptimes (update_id, arrival_time, arrival_uncertainty, arrival_delay, departure_time, departure_uncertainty, departure_delay, rship, stop_id, stop_sequence) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                                        Statement.RETURN_GENERATED_KEYS));
+    }
+
+    private static final String COPY_TRIP_UPDATES            = "COPY gtfs_rt_trip_updates(update_id, ts, trip_sr, trip_date, trip_time, trip_id, route_id, vehicle_id, vehicle_label, vehicle_plate) FROM STDIN WITH DELIMITER '"
+                                                                     + COPY_SEPARATOR + "' NULL AS ''";
+    private static final String COPY_TRIP_UPDATES_STOP_TIMES = "COPY gtfs_rt_trip_updates_stoptimes(update_id, arrival_time, arrival_uncertainty, arrival_delay, departure_time, departure_uncertainty, departure_delay, rship, stop_id, stop_sequence) FROM STDIN WITH DELIMITER '"
+                                                                     + COPY_SEPARATOR + "' NULL AS ''";
+    private static final String COPY_VEHICLE_POSITIONS       = "COPY gtfs_rt_vehicles(congestion, status, sequence, bearing, odometer, speed, latitude, longitude, stop_id, ts, trip_sr, trip_date, trip_time, trip_id, vehicle_id, vehicle_label, vehicle_plate) FROM STDIN WITH DELIMITER '"
+                                                                     + COPY_SEPARATOR + "' NULL AS ''";
+
+    private void closeStatements() throws SQLException {
+        for (PreparedStatement stmt : mStatements.values()) {
+            stmt.close();
+        }
+
+        mStatements = new HashMap<String, PreparedStatement>();
+    }
+
+    private void recordVehicle(VehiclePosition vehicle, DataCopier copier) throws SQLException, Exception {
+        if (!vehicle.hasPosition()) {
+            throw new Exception("No position found");
+        }
+
+        PreparedStatement stmt = null;
+
+        DataCopierRow row = null;
+
+        if (copier == null) {
+            stmt = mStatements.get(STVEHICLE);
+        }
+        else {
+            row = new DataCopierRow();
+        }
+
+        int congestionLevel = vehicle.hasCongestionLevel() ? vehicle.getCongestionLevel().getNumber()
+                : CongestionLevel.UNKNOWN_CONGESTION_LEVEL_VALUE;
+        int vehicleStatus = vehicle.hasCurrentStatus() ? vehicle.getCurrentStatus().getNumber() : VehicleStopStatus.IN_TRANSIT_TO_VALUE;
+        int stopSequence = vehicle.hasCurrentStopSequence() ? vehicle.getCurrentStopSequence() : -1;
+
+        if (row == null) {
+            stmt.setInt(1, congestionLevel);
+            stmt.setInt(2, vehicleStatus);
+            stmt.setInt(3, stopSequence);
+        }
+        else {
+            row.add(congestionLevel);
+            row.add(vehicleStatus);
+            row.add(stopSequence);
+        }
+
+        Position pos = vehicle.getPosition();
+
+        if (pos.hasBearing()) {
+            if (row == null) {
+                stmt.setFloat(4, pos.getBearing());
+            }
+            else {
+                row.add(pos.getBearing());
+            }
+        }
+        else {
+            if (row == null) {
+                stmt.setNull(4, Types.FLOAT);
+            }
+            else {
+                row.addNull();
+            }
+        }
+
+        if (pos.hasOdometer()) {
+            if (row == null) {
+                stmt.setDouble(5, pos.getOdometer());
+            }
+            else {
+                row.add(pos.getOdometer());
+            }
+        }
+        else {
+            if (row == null) {
+                stmt.setNull(5, Types.DOUBLE);
+            }
+            else {
+                row.addNull();
+            }
+        }
+
+        if (pos.hasSpeed()) {
+            if (row == null) {
+                stmt.setFloat(6, pos.getSpeed());
+            }
+            else {
+                row.add(pos.getSpeed());
+            }
+        }
+        else {
+            if (row == null) {
+                stmt.setNull(6, Types.FLOAT);
+            }
+            else {
+                row.addNull();
+            }
+        }
+
+        if (pos.hasLatitude()) {
+            if (row == null) {
+                stmt.setFloat(7, pos.getLatitude());
+            }
+            else {
+                row.add(pos.getLatitude());
+            }
+        }
+        else {
+            if (row == null) {
+                stmt.setNull(7, Types.FLOAT);
+            }
+            else {
+                row.addNull();
+            }
+        }
+
+        if (pos.hasLongitude()) {
+            if (row == null) {
+                stmt.setFloat(8, pos.getLongitude());
+            }
+            else {
+                row.add(pos.getLongitude());
+            }
+        }
+        else {
+            if (row == null) {
+                stmt.setNull(8, Types.FLOAT);
+            }
+            else {
+                row.addNull();
+            }
+        }
+
+        if (vehicle.hasStopId()) {
+            if (row == null) {
+                stmt.setString(9, vehicle.getStopId());
+            }
+            else {
+                row.add(vehicle.getStopId());
+            }
+        }
+        else {
+            if (row == null) {
+                stmt.setNull(9, Types.VARCHAR);
+            }
+            else {
+                row.addNull();
+            }
+        }
+
+        if (vehicle.hasTimestamp()) {
+            if (row == null) {
+                stmt.setLong(10, vehicle.getTimestamp());
+            }
+            else {
+                row.add(vehicle.getTimestamp());
+            }
+        }
+        else {
+            if (row == null) {
+                stmt.setNull(10, Types.INTEGER);
+            }
+            else {
+                row.addNull();
+            }
+        }
+
+        if (vehicle.hasTrip()) {
+            TripDescriptor trip = vehicle.getTrip();
+
+            if (trip.hasScheduleRelationship()) {
+                if (row == null) {
+                    stmt.setInt(11, trip.getScheduleRelationship().getNumber());
+                }
+                else {
+                    row.add(trip.getScheduleRelationship().getNumber());
+                }
+            }
+            else {
+                if (row == null) {
+                    stmt.setNull(11, Types.INTEGER);
+                }
+                else {
+                    row.addNull();
+                }
+            }
+
+            if (trip.hasStartDate()) {
+                if (row == null) {
+                    stmt.setString(12, trip.getStartDate());
+                }
+                else {
+                    row.add(trip.getStartDate());
+                }
+            }
+            else {
+                if (row == null) {
+                    stmt.setNull(12, Types.VARCHAR);
+                }
+                else {
+                    row.addNull();
+                }
+            }
+
+            if (trip.hasStartTime()) {
+                if (row == null) {
+                    stmt.setString(13, trip.getStartTime());
+                }
+                else {
+                    row.add(trip.getStartTime());
+                }
+            }
+            else {
+                if (row == null) {
+                    stmt.setNull(13, Types.VARCHAR);
+                }
+                else {
+                    row.addNull();
+                }
+            }
+
+            if (trip.hasTripId()) {
+                if (row == null) {
+                    stmt.setString(14, trip.getTripId());
+                }
+                else {
+                    row.add(trip.getTripId());
+                }
+            }
+            else {
+                if (row == null) {
+                    stmt.setNull(14, Types.VARCHAR);
+                }
+                else {
+                    row.addNull();
+                }
+            }
+        }
+        else {
+            if (row == null) {
+                stmt.setNull(11, Types.INTEGER);
+                stmt.setNull(12, Types.VARCHAR);
+                stmt.setNull(13, Types.VARCHAR);
+                stmt.setNull(14, Types.VARCHAR);
+            }
+            else {
+                row.addNull(4);
+            }
+        }
+
+        if (vehicle.hasVehicle()) {
+            VehicleDescriptor vd = vehicle.getVehicle();
+
+            if (vd.hasId()) {
+                if (row == null) {
+                    stmt.setString(15, vd.getId());
+                }
+                else {
+                    row.add(vd.getId());
+                }
+            }
+            else {
+                if (row == null) {
+                    stmt.setNull(15, Types.VARCHAR);
+                }
+                else {
+                    row.addNull();
+                }
+            }
+
+            if (vd.hasLabel()) {
+                if (row == null) {
+                    stmt.setString(16, vd.getLabel());
+                }
+                else {
+                    row.add(vd.getLabel());
+                }
+            }
+            else {
+                if (row == null) {
+                    stmt.setNull(16, Types.VARCHAR);
+                }
+                else {
+                    row.addNull();
+                }
+            }
+
+            if (vd.hasLicensePlate()) {
+                if (row == null) {
+                    stmt.setString(17, vd.getLicensePlate());
+                }
+                else {
+                    row.add(vd.getLicensePlate());
+                }
+            }
+            else {
+                if (row == null) {
+                    stmt.setNull(17, Types.VARCHAR);
+                }
+                else {
+                    row.addNull();
+                }
+            }
+        }
+        else {
+            if (row == null) {
+                stmt.setNull(15, Types.VARCHAR);
+                stmt.setNull(16, Types.VARCHAR);
+                stmt.setNull(17, Types.VARCHAR);
+            }
+            else {
+                row.addNull(3);
+            }
+        }
+
+        if (stmt == null) {
+            copier.add(row);
+        }
+        else {
+            stmt.execute();
+        }
+    }
+
+    private int mUpdateId = 0;
+
+    private void resetUpdateId() {
+        mUpdateId = 0;
+    }
+
+    private int getUpdateId() {
+        return ++mUpdateId;
+    }
+
+    private void recordTripUpdate(TripUpdate tripUpdate, DataCopier tuCopier, DataCopier stCopier) throws SQLException {
+        PreparedStatement stmt = null;
+
+        int updateId = getUpdateId();
+
+        DataCopierRow tuRow = null;
+
+        if (tuCopier != null) {
+            tuRow = new DataCopierRow();
+        }
+        else {
+            stmt = mStatements.get(STTRIPUPDATE);
+        }
+
+        if (tuRow == null) {
+            stmt.setInt(1, updateId);
+        }
+        else {
+            tuRow.add(updateId);
+        }
+
+        if (tripUpdate.hasTimestamp()) {
+            if (tuRow == null) {
+                stmt.setLong(2, tripUpdate.getTimestamp());
+            }
+            else {
+                tuRow.add(tripUpdate.getTimestamp());
+            }
+        }
+        else {
+            if (tuRow == null) {
+                stmt.setNull(2, Types.INTEGER);
+            }
+            else {
+                tuRow.addNull();
+            }
+        }
+
+        if (tripUpdate.hasTrip()) {
+            TripDescriptor trip = tripUpdate.getTrip();
+
+            if (trip.hasScheduleRelationship()) {
+                if (tuRow == null) {
+                    stmt.setInt(3, trip.getScheduleRelationship().getNumber());
+                }
+                else {
+                    tuRow.add(trip.getScheduleRelationship().getNumber());
+                }
+            }
+            else {
+                if (tuRow == null) {
+                    stmt.setNull(3, Types.INTEGER);
+                }
+                else {
+                    tuRow.addNull();
+                }
+            }
+
+            if (trip.hasStartDate()) {
+                if (tuRow == null) {
+                    stmt.setString(4, trip.getStartDate());
+                }
+                else {
+                    tuRow.add(trip.getStartDate());
+                }
+            }
+            else {
+                if (tuRow == null) {
+                    stmt.setNull(4, Types.VARCHAR);
+                }
+                else {
+                    tuRow.addNull();
+                }
+            }
+
+            if (trip.hasStartTime()) {
+                if (tuRow == null) {
+                    stmt.setString(5, trip.getStartTime());
+                }
+                else {
+                    tuRow.add(trip.getStartTime());
+                }
+            }
+            else {
+                if (tuRow == null) {
+                    stmt.setNull(5, Types.VARCHAR);
+                }
+                else {
+                    tuRow.addNull();
+                }
+            }
+
+            if (trip.hasTripId()) {
+                if (tuRow == null) {
+                    stmt.setString(6, trip.getTripId());
+                }
+                else {
+                    tuRow.add(trip.getTripId());
+                }
+            }
+            else {
+                if (tuRow == null) {
+                    stmt.setNull(6, Types.VARCHAR);
+                }
+                else {
+                    tuRow.addNull();
+                }
+            }
+
+            if (trip.hasRouteId()) {
+                if (tuRow == null) {
+                    stmt.setString(7, trip.getRouteId());
+                }
+                else {
+                    tuRow.add(trip.getRouteId());
+                }
+            }
+            else {
+                if (tuRow == null) {
+                    stmt.setNull(7, Types.VARCHAR);
+                }
+                else {
+                    tuRow.addNull();
+                }
+            }
+        }
+        else {
+            if (tuRow == null) {
+                stmt.setNull(3, Types.INTEGER);
+                stmt.setNull(4, Types.VARCHAR);
+                stmt.setNull(5, Types.VARCHAR);
+                stmt.setNull(6, Types.VARCHAR);
+                stmt.setNull(7, Types.VARCHAR);
+            }
+            else {
+                tuRow.addNull(5);
+            }
+        }
+
+        if (tripUpdate.hasVehicle()) {
+            VehicleDescriptor vd = tripUpdate.getVehicle();
+
+            if (vd.hasId()) {
+                if (tuRow == null) {
+                    stmt.setString(8, vd.getId());
+                }
+                else {
+                    tuRow.add(vd.getId());
+                }
+            }
+            else {
+                if (tuRow == null) {
+                    stmt.setNull(8, Types.INTEGER);
+                }
+                else {
+                    tuRow.addNull();
+                }
+            }
+
+            if (vd.hasLabel()) {
+                if (tuRow == null) {
+                    stmt.setString(9, vd.getLabel());
+                }
+                else {
+                    tuRow.add(vd.getLabel());
+                }
+            }
+            else {
+                if (tuRow == null) {
+                    stmt.setNull(9, Types.VARCHAR);
+                }
+                else {
+                    tuRow.addNull();
+                }
+            }
+
+            if (vd.hasLicensePlate()) {
+                if (tuRow == null) {
+                    stmt.setString(10, vd.getLicensePlate());
+                }
+                else {
+                    tuRow.add(vd.getLicensePlate());
+                }
+            }
+            else {
+                if (tuRow == null) {
+                    stmt.setNull(10, Types.VARCHAR);
+                }
+                else {
+                    tuRow.addNull();
+                }
+            }
+        }
+        else {
+            if (tuRow == null) {
+                stmt.setNull(8, Types.INTEGER);
+                stmt.setNull(9, Types.VARCHAR);
+                stmt.setNull(10, Types.VARCHAR);
+            }
+            else {
+                tuRow.addNull(3);
+            }
+        }
+
+        if (tuCopier == null) {
+            stmt.addBatch();
+        }
+        else {
+            tuCopier.add(tuRow);
+        }
+
+        if (stCopier == null) {
+            stmt = mStatements.get(STTRIPUPDATE_STOPTIMEUPDATES);
+        }
+        else {
+            stmt = null;
+        }
+
+        for (StopTimeUpdate stu : tripUpdate.getStopTimeUpdateList()) {
+            DataCopierRow stRow = null;
+
+            if (stmt == null) {
+                stRow = new DataCopierRow();
+            }
+
+            if (stRow == null) {
+                stmt.setInt(1, updateId);
+            }
+            else {
+                stRow.add(updateId);
+            }
+
+            if (stu.hasArrival()) {
+                StopTimeEvent ste = stu.getArrival();
+
+                if (ste.hasTime()) {
+                    if (stRow == null) {
+                        stmt.setLong(2, ste.getTime());
+                    }
+                    else {
+                        stRow.add(ste.getTime());
+                    }
+                }
+                else {
+                    if (stRow == null) {
+                        stmt.setNull(2, Types.INTEGER);
+                    }
+                    else {
+                        stRow.addNull();
+                    }
+                }
+
+                if (ste.hasUncertainty()) {
+                    if (stRow == null) {
+                        stmt.setInt(3, ste.getUncertainty());
+                    }
+                    else {
+                        stRow.add(ste.getUncertainty());
+                    }
+                }
+                else {
+                    if (stRow == null) {
+                        stmt.setNull(3, Types.INTEGER);
+                    }
+                    else {
+                        stRow.addNull();
+                    }
+                }
+
+                if (ste.hasDelay()) {
+                    if (stRow == null) {
+                        stmt.setInt(4, ste.getDelay());
+                    }
+                    else {
+                        stRow.add(ste.getDelay());
+                    }
+                }
+                else {
+                    if (stRow == null) {
+                        stmt.setNull(4, Types.INTEGER);
+                    }
+                    else {
+                        stRow.addNull();
+                    }
+                }
+            }
+            else {
+                if (stRow == null) {
+                    stmt.setNull(2, Types.INTEGER);
+                    stmt.setNull(3, Types.INTEGER);
+                    stmt.setNull(4, Types.INTEGER);
+                }
+                else {
+                    stRow.addNull(3);
+                }
+            }
+
+            if (stu.hasDeparture()) {
+                StopTimeEvent ste = stu.getDeparture();
+
+                if (ste.hasTime()) {
+                    if (stRow == null) {
+                        stmt.setLong(5, ste.getTime());
+                    }
+                    else {
+                        stRow.add(ste.getTime());
+                    }
+                }
+                else {
+                    if (stRow == null) {
+                        stmt.setNull(5, Types.INTEGER);
+                    }
+                    else {
+                        stRow.addNull();
+                    }
+                }
+
+                if (ste.hasUncertainty()) {
+                    if (stRow == null) {
+                        stmt.setInt(6, ste.getUncertainty());
+                    }
+                    else {
+                        stRow.add(ste.getUncertainty());
+                    }
+                }
+                else {
+                    if (stRow == null) {
+                        stmt.setNull(6, Types.INTEGER);
+                    }
+                    else {
+                        stRow.addNull();
+                    }
+                }
+
+                if (ste.hasDelay()) {
+                    if (stRow == null) {
+                        stmt.setInt(7, ste.getDelay());
+                    }
+                    else {
+                        stRow.add(ste.getDelay());
+                    }
+                }
+                else {
+                    if (stRow == null) {
+                        stmt.setNull(7, Types.INTEGER);
+                    }
+                    else {
+                        stRow.addNull();
+                    }
+                }
+            }
+            else {
+                if (stRow == null) {
+                    stmt.setNull(5, Types.INTEGER);
+                    stmt.setNull(6, Types.INTEGER);
+                    stmt.setNull(7, Types.INTEGER);
+                }
+                else {
+                    stRow.addNull(3);
+                }
+            }
+
+            int srInt = stu.hasScheduleRelationship() ? stu.getScheduleRelationship().getNumber()
+                    : com.google.transit.realtime.GtfsRealtime.TripUpdate.StopTimeUpdate.ScheduleRelationship.SCHEDULED_VALUE;
+            if (stRow == null) {
+                stmt.setInt(8, srInt);
+            }
+            else {
+                stRow.add(srInt);
+            }
+
+            if (stu.hasStopId()) {
+                if (stRow == null) {
+                    stmt.setString(9, stu.getStopId());
+                }
+                else {
+                    stRow.add(stu.getStopId());
+                }
+            }
+            else {
+                if (stRow == null) {
+                    stmt.setNull(9, Types.VARCHAR);
+                }
+                else {
+                    stRow.addNull();
+                }
+            }
+
+            int ssInt = stu.hasStopSequence() ? stu.getStopSequence() : -1;
+
+            if (stRow == null) {
+                stmt.setInt(10, ssInt);
+            }
+            else {
+                stRow.add(ssInt);
+            }
+
+            if (stmt == null) {
+                stCopier.add(stRow);
+            }
+            else {
+                stmt.addBatch();
+            }
+        }
+    }
+
+    private void recordAlert(Alert alert) throws SQLException {
+        PreparedStatement stmt = mStatements.get(STALERT);
+
+        int updateId = getUpdateId();
+
+        stmt.setInt(1, updateId);
+
+        if (alert.hasHeaderText()) {
+            stmt.setString(2, getString(alert.getHeaderText()));
+        }
+        else {
+            stmt.setNull(2, Types.VARCHAR);
+        }
+
+        if (alert.hasDescriptionText()) {
+            stmt.setString(3, getString(alert.getDescriptionText()));
+        }
+        else {
+            stmt.setNull(3, Types.VARCHAR);
+        }
+
+        if (alert.hasCause()) {
+            stmt.setInt(4, alert.getCause().getNumber());
+        }
+        else {
+            stmt.setNull(4, Types.INTEGER);
+        }
+
+        if (alert.hasEffect()) {
+            stmt.setInt(5, alert.getEffect().getNumber());
+        }
+        else {
+            stmt.setNull(5, Types.INTEGER);
+        }
+
+        stmt.addBatch();
+
+        stmt = mStatements.get(STALERT_TIMERANGES);
+
+        for (TimeRange timeRange : alert.getActivePeriodList()) {
+            stmt.setInt(1, updateId);
+
+            if (timeRange.hasStart()) {
+                stmt.setLong(2, timeRange.getStart());
+            }
+            else {
+                stmt.setNull(2, Types.INTEGER);
+            }
+
+            if (timeRange.hasEnd()) {
+                stmt.setLong(3, timeRange.getEnd());
+            }
+            else {
+                stmt.setNull(3, Types.INTEGER);
+            }
+
+            stmt.addBatch();
+        }
+
+        stmt = mStatements.get(STALERT_ENTITIES);
+
+        for (EntitySelector entity : alert.getInformedEntityList()) {
+            stmt.clearParameters();
+
+            stmt.setInt(1, updateId);
+
+            if (entity.hasAgencyId()) {
+                stmt.setString(2, entity.getAgencyId());
+            }
+            else {
+                stmt.setNull(2, Types.VARCHAR);
+            }
+
+            if (entity.hasRouteId()) {
+                stmt.setString(3, entity.getRouteId());
+            }
+            else {
+                stmt.setNull(3, Types.VARCHAR);
+            }
+
+            if (entity.hasRouteType()) {
+                stmt.setInt(4, entity.getRouteType());
+            }
+            else {
+                stmt.setNull(4, Types.INTEGER);
+            }
+
+            if (entity.hasStopId()) {
+                stmt.setString(5, entity.getStopId());
+            }
+            else {
+                stmt.setNull(5, Types.VARCHAR);
+            }
+
+            if (entity.hasTrip()) {
+                TripDescriptor trip = entity.getTrip();
+
+                if (trip.hasScheduleRelationship()) {
+                    stmt.setInt(6, trip.getScheduleRelationship().getNumber());
+                }
+                else {
+                    stmt.setNull(6, Types.INTEGER);
+                }
+
+                if (trip.hasStartDate()) {
+                    stmt.setString(7, trip.getStartDate());
+                }
+                else {
+                    stmt.setNull(7, Types.VARCHAR);
+                }
+
+                if (trip.hasStartTime()) {
+                    stmt.setString(8, trip.getStartTime());
+                }
+                else {
+                    stmt.setNull(8, Types.VARCHAR);
+                }
+
+                if (trip.hasTripId()) {
+                    stmt.setString(9, trip.getTripId());
+                }
+                else {
+                    stmt.setNull(9, Types.VARCHAR);
+                }
+            }
+            else {
+                stmt.setNull(6, Types.INTEGER);
+                stmt.setNull(7, Types.VARCHAR);
+                stmt.setNull(8, Types.VARCHAR);
+                stmt.setNull(9, Types.VARCHAR);
+            }
+
+            stmt.addBatch();
+        }
+    }
+
+    private String getString(TranslatedString str) {
+        return str.getTranslation(0).getText();
+    }
 }
