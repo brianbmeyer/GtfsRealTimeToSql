@@ -1,7 +1,10 @@
 package com.transitfeeds.gtfsrealtimetosql;
 
+import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
+
+import org.postgresql.copy.CopyIn;
 
 public class DataCopierRow {
 
@@ -58,4 +61,9 @@ public class DataCopierRow {
 		}
 		return ret + "\n";
 	}
+
+    public void write(CopyIn copier, String separator) throws SQLException {
+        byte[] bytes = getBytes(separator);
+        copier.writeToCopy(bytes, 0, bytes.length);
+    }
 }

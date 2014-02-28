@@ -42,7 +42,7 @@ public class GtfsRealTimeToSql {
 		}
 
 		if (line.hasOption("username") && !line.hasOption("password")) {
-			System.out.println("Password must be specified");
+			System.err.println("Password must be specified");
 			System.exit(1);
 			return;
 		}

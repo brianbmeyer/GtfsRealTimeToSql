@@ -10,16 +10,33 @@ public class DataCopier {
 
 	private List<DataCopierRow> mRows = new ArrayList<DataCopierRow>();
 	
-	public void add(DataCopierRow row) {
-		mRows.add(row);
+	private CopyIn mCopier;
+	private String mSeparator;
+	
+	public DataCopier() {
+	}
+	
+	public DataCopier(CopyIn copier, String separator) {
+	    mSeparator = separator;
+	    mCopier = copier;
+	}
+	
+	public void add(DataCopierRow row) throws SQLException {
+	    if (mCopier == null) {
+	        mRows.add(row);
+	    }
+	    else {
+	        row.write(mCopier, mSeparator);
+	    }
 	}
 
 	public void write(CopyIn copier, String separator) throws SQLException {
-		byte[] bytes;
-		
+	    if (mCopier != null) {
+	        return;
+	    }
+	    
 		for (DataCopierRow row : mRows) {
-			bytes = row.getBytes(separator);
-			copier.writeToCopy(bytes, 0, bytes.length);
+		    row.write(copier, separator);
 		}
 	}
 	

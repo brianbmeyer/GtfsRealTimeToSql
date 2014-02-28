@@ -104,15 +104,33 @@ public class GtfsRealTimeSqlRecorder {
         boolean useCopy = mConnection instanceof BaseConnection;
 
         CopyManager cm = null;
+        
         DataCopier tuCopier = null;
         DataCopier stCopier = null;
         DataCopier vpCopier = null;
+        
+        CopyIn tuCopyIn = null;
+        CopyIn stCopyIn = null;
+        CopyIn vpCopyIn = null;
 
         if (useCopy) {
             cm = new CopyManager((BaseConnection) mConnection);
             tuCopier = new DataCopier();
             stCopier = new DataCopier();
             vpCopier = new DataCopier();
+            
+            if (hasTripUpdates) {
+                stCopyIn = cm.copyIn(COPY_TRIP_UPDATES_STOP_TIMES);
+                stCopier = new DataCopier(stCopyIn, COPY_SEPARATOR);
+                
+                vpCopier = new DataCopier();
+            }
+            else {
+                vpCopyIn = cm.copyIn(COPY_VEHICLE_POSITIONS);
+                vpCopier = new DataCopier(vpCopyIn, COPY_SEPARATOR);
+                
+                stCopier = new DataCopier();
+            }
         }
 
         for (FeedEntity entity : feedMessage.getEntityList()) {
@@ -152,26 +170,31 @@ public class GtfsRealTimeSqlRecorder {
         if (hasTripUpdates) {
             System.err.print("Committing trip updates... ");
 
+            if (stCopier == null) {
+                mStatements.get(STTRIPUPDATE_STOPTIMEUPDATES).executeBatch();
+            }
+            else if (stCopyIn == null && stCopier.size() > 0) {
+                stCopyIn = cm.copyIn(COPY_TRIP_UPDATES_STOP_TIMES);
+                stCopier.write(stCopyIn, COPY_SEPARATOR);
+            }
+            
+            if (stCopyIn != null) {
+                stCopyIn.endCopy();
+            }
+
             if (tuCopier == null) {
                 mStatements.get(STTRIPUPDATE).executeBatch();
             }
             else if (tuCopier.size() > 0) {
-                CopyIn copier = cm.copyIn(COPY_TRIP_UPDATES);
-                tuCopier.write(copier, COPY_SEPARATOR);
-                copier.endCopy();
+                tuCopyIn = cm.copyIn(COPY_TRIP_UPDATES);
+                tuCopier.write(tuCopyIn, COPY_SEPARATOR);
             }
-
-            if (stCopier == null) {
-                mStatements.get(STTRIPUPDATE_STOPTIMEUPDATES).executeBatch();
-            }
-            else if (stCopier.size() > 0){
-                CopyIn copier = cm.copyIn(COPY_TRIP_UPDATES_STOP_TIMES);
-                stCopier.write(copier, COPY_SEPARATOR);
-                copier.endCopy();
+            
+            if (tuCopyIn != null) {
+                tuCopyIn.endCopy();
             }
 
             System.err.println("done");
-
         }
 
         if (hasVehiclePositions) {
@@ -181,9 +204,12 @@ public class GtfsRealTimeSqlRecorder {
                 mStatements.get(STVEHICLE).executeBatch();
             }
             else if (vpCopier.size() > 0) {
-                CopyIn copier = cm.copyIn(COPY_VEHICLE_POSITIONS);
-                vpCopier.write(copier, COPY_SEPARATOR);
-                copier.endCopy();
+                vpCopyIn = cm.copyIn(COPY_VEHICLE_POSITIONS);
+                vpCopier.write(vpCopyIn, COPY_SEPARATOR);
+            }
+            
+            if (vpCopyIn != null) {
+                vpCopyIn.endCopy();
             }
 
             System.err.println("done");
@@ -191,24 +217,13 @@ public class GtfsRealTimeSqlRecorder {
     }
 
     public static String[] TABLES = {
-            "gtfs_rt_alerts",
-            "alert_id INTEGER, header TEXT, description TEXT, cause INTEGER, effect INTEGER",
-            "",
-            "gtfs_rt_alerts_timeranges",
-            "alert_id INTEGER, start INTEGER, finish INTEGER",
-            "",
-            "gtfs_rt_alerts_entities",
-            "alert_id INTEGER, agency_id TEXT, route_id TEXT, route_type INTEGER, stop_id TEXT, trip_rship INTEGER, trip_start_date TEXT, trip_start_time TEXT, trip_id TEXT",
-            "agency_id,route_id,stop_id,trip_id",
-            "gtfs_rt_vehicles",
-            "congestion INTEGER, status INTEGER, sequence INTEGER, bearing REAL, odometer REAL, speed REAL, latitude REAL, longitude REAL, stop_id TEXT, ts INTEGER, trip_sr INTEGER, trip_date TEXT, trip_time TEXT, trip_id TEXT, vehicle_id TEXT, vehicle_label TEXT, vehicle_plate TEXT",
-            "stop_id,trip_id",
-            "gtfs_rt_trip_updates",
-            "update_id INTEGER, ts INTEGER, trip_sr INTEGER, trip_date TEXT, trip_time TEXT, trip_id TEXT, route_id TEXT, vehicle_id TEXT, vehicle_label TEXT, vehicle_plate TEXT",
-            "update_id,trip_id,route_id",
-            "gtfs_rt_trip_updates_stoptimes",
-            "update_id INTEGER, arrival_time INTEGER, arrival_uncertainty INTEGER, arrival_delay INTEGER, departure_time INTEGER, departure_uncertainty INTEGER, departure_delay INTEGER, rship INTEGER, stop_id TEXT, stop_sequence INTEGER",
-            "stop_id,update_id"  };
+            "gtfs_rt_alerts", "alert_id INTEGER, header TEXT, description TEXT, cause INTEGER, effect INTEGER", "",
+            "gtfs_rt_alerts_timeranges", "alert_id INTEGER, start INTEGER, finish INTEGER", "",
+            "gtfs_rt_alerts_entities", "alert_id INTEGER, agency_id TEXT, route_id TEXT, route_type INTEGER, stop_id TEXT, trip_rship INTEGER, trip_start_date TEXT, trip_start_time TEXT, trip_id TEXT", "agency_id,route_id,stop_id,trip_id",
+            "gtfs_rt_vehicles", "congestion INTEGER, status INTEGER, sequence INTEGER, bearing REAL, odometer REAL, speed REAL, latitude REAL, longitude REAL, stop_id TEXT, ts INTEGER, trip_sr INTEGER, trip_date TEXT, trip_time TEXT, trip_id TEXT, vehicle_id TEXT, vehicle_label TEXT, vehicle_plate TEXT", "stop_id,trip_id",
+            "gtfs_rt_trip_updates", "update_id INTEGER, ts INTEGER, trip_sr INTEGER, trip_date TEXT, trip_time TEXT, trip_id TEXT, route_id TEXT, vehicle_id TEXT, vehicle_label TEXT, vehicle_plate TEXT", "update_id,trip_id,route_id",
+            "gtfs_rt_trip_updates_stoptimes", "update_id INTEGER, arrival_time INTEGER, arrival_uncertainty INTEGER, arrival_delay INTEGER, departure_time INTEGER, departure_uncertainty INTEGER, departure_delay INTEGER, rship INTEGER, stop_id TEXT, stop_sequence INTEGER", "stop_id,update_id"  
+    };
 
     private void clearTripUpdatesData() throws SQLException {
         clearData(4, 5);
@@ -288,43 +303,17 @@ public class GtfsRealTimeSqlRecorder {
     public static final String STTRIPUPDATE_STOPTIMEUPDATES = "STTRIPUPDATE_STOPTIMEUPDATES";
 
     private void openStatements() throws SQLException {
-        mStatements.put(STALERT, mConnection.prepareStatement(
-                "INSERT INTO gtfs_rt_alerts (alert_id, header, description, cause, effect) VALUES (?, ?, ?, ?, ?)",
-                Statement.RETURN_GENERATED_KEYS));
-        mStatements.put(STALERT_TIMERANGES, mConnection.prepareStatement(
-                "INSERT INTO gtfs_rt_alerts_timeranges (alert_id, start, finish) VALUES (?, ?, ?)", Statement.RETURN_GENERATED_KEYS));
-        mStatements
-                .put(STALERT_ENTITIES,
-                        mConnection
-                                .prepareStatement(
-                                        "INSERT INTO gtfs_rt_alerts_entities (alert_id, agency_id, route_id, route_type, stop_id, trip_rship, trip_start_date, trip_start_time, trip_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                                        Statement.RETURN_GENERATED_KEYS));
-        mStatements
-                .put(STVEHICLE,
-                        mConnection
-                                .prepareStatement(
-                                        "INSERT INTO gtfs_rt_vehicles (congestion, status, sequence, bearing, odometer, speed, latitude, longitude, stop_id, ts, trip_sr, trip_date, trip_time, trip_id, vehicle_id, vehicle_label, vehicle_plate) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                                        Statement.RETURN_GENERATED_KEYS));
-        mStatements
-                .put(STTRIPUPDATE,
-                        mConnection
-                                .prepareStatement(
-                                        "INSERT INTO gtfs_rt_trip_updates (update_id, ts, trip_sr, trip_date, trip_time, trip_id, route_id, vehicle_id, vehicle_label, vehicle_plate) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                                        Statement.RETURN_GENERATED_KEYS));
-        mStatements
-                .put(STTRIPUPDATE_STOPTIMEUPDATES,
-                        mConnection
-                                .prepareStatement(
-                                        "INSERT INTO gtfs_rt_trip_updates_stoptimes (update_id, arrival_time, arrival_uncertainty, arrival_delay, departure_time, departure_uncertainty, departure_delay, rship, stop_id, stop_sequence) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                                        Statement.RETURN_GENERATED_KEYS));
+        mStatements.put(STALERT, mConnection.prepareStatement("INSERT INTO gtfs_rt_alerts (alert_id, header, description, cause, effect) VALUES (?, ?, ?, ?, ?)", Statement.RETURN_GENERATED_KEYS));
+        mStatements.put(STALERT_TIMERANGES, mConnection.prepareStatement("INSERT INTO gtfs_rt_alerts_timeranges (alert_id, start, finish) VALUES (?, ?, ?)", Statement.RETURN_GENERATED_KEYS));
+        mStatements.put(STALERT_ENTITIES, mConnection.prepareStatement("INSERT INTO gtfs_rt_alerts_entities (alert_id, agency_id, route_id, route_type, stop_id, trip_rship, trip_start_date, trip_start_time, trip_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", Statement.RETURN_GENERATED_KEYS));
+        mStatements.put(STVEHICLE, mConnection.prepareStatement("INSERT INTO gtfs_rt_vehicles (congestion, status, sequence, bearing, odometer, speed, latitude, longitude, stop_id, ts, trip_sr, trip_date, trip_time, trip_id, vehicle_id, vehicle_label, vehicle_plate) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", Statement.RETURN_GENERATED_KEYS));
+        mStatements.put(STTRIPUPDATE, mConnection.prepareStatement("INSERT INTO gtfs_rt_trip_updates (update_id, ts, trip_sr, trip_date, trip_time, trip_id, route_id, vehicle_id, vehicle_label, vehicle_plate) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", Statement.RETURN_GENERATED_KEYS));
+        mStatements.put(STTRIPUPDATE_STOPTIMEUPDATES, mConnection.prepareStatement("INSERT INTO gtfs_rt_trip_updates_stoptimes (update_id, arrival_time, arrival_uncertainty, arrival_delay, departure_time, departure_uncertainty, departure_delay, rship, stop_id, stop_sequence) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", Statement.RETURN_GENERATED_KEYS));
     }
 
-    private static final String COPY_TRIP_UPDATES            = "COPY gtfs_rt_trip_updates(update_id, ts, trip_sr, trip_date, trip_time, trip_id, route_id, vehicle_id, vehicle_label, vehicle_plate) FROM STDIN WITH DELIMITER '"
-                                                                     + COPY_SEPARATOR + "' NULL AS ''";
-    private static final String COPY_TRIP_UPDATES_STOP_TIMES = "COPY gtfs_rt_trip_updates_stoptimes(update_id, arrival_time, arrival_uncertainty, arrival_delay, departure_time, departure_uncertainty, departure_delay, rship, stop_id, stop_sequence) FROM STDIN WITH DELIMITER '"
-                                                                     + COPY_SEPARATOR + "' NULL AS ''";
-    private static final String COPY_VEHICLE_POSITIONS       = "COPY gtfs_rt_vehicles(congestion, status, sequence, bearing, odometer, speed, latitude, longitude, stop_id, ts, trip_sr, trip_date, trip_time, trip_id, vehicle_id, vehicle_label, vehicle_plate) FROM STDIN WITH DELIMITER '"
-                                                                     + COPY_SEPARATOR + "' NULL AS ''";
+    private static final String COPY_TRIP_UPDATES            = "COPY gtfs_rt_trip_updates(update_id, ts, trip_sr, trip_date, trip_time, trip_id, route_id, vehicle_id, vehicle_label, vehicle_plate) FROM STDIN WITH DELIMITER '" + COPY_SEPARATOR + "' NULL AS ''";
+    private static final String COPY_TRIP_UPDATES_STOP_TIMES = "COPY gtfs_rt_trip_updates_stoptimes(update_id, arrival_time, arrival_uncertainty, arrival_delay, departure_time, departure_uncertainty, departure_delay, rship, stop_id, stop_sequence) FROM STDIN WITH DELIMITER '" + COPY_SEPARATOR + "' NULL AS ''";
+    private static final String COPY_VEHICLE_POSITIONS       = "COPY gtfs_rt_vehicles(congestion, status, sequence, bearing, odometer, speed, latitude, longitude, stop_id, ts, trip_sr, trip_date, trip_time, trip_id, vehicle_id, vehicle_label, vehicle_plate) FROM STDIN WITH DELIMITER '" + COPY_SEPARATOR + "' NULL AS ''";
 
     private void closeStatements() throws SQLException {
         for (PreparedStatement stmt : mStatements.values()) {
@@ -350,8 +339,7 @@ public class GtfsRealTimeSqlRecorder {
             row = new DataCopierRow();
         }
 
-        int congestionLevel = vehicle.hasCongestionLevel() ? vehicle.getCongestionLevel().getNumber()
-                : CongestionLevel.UNKNOWN_CONGESTION_LEVEL_VALUE;
+        int congestionLevel = vehicle.hasCongestionLevel() ? vehicle.getCongestionLevel().getNumber() : CongestionLevel.UNKNOWN_CONGESTION_LEVEL_VALUE;
         int vehicleStatus = vehicle.hasCurrentStatus() ? vehicle.getCurrentStatus().getNumber() : VehicleStopStatus.IN_TRANSIT_TO_VALUE;
         int stopSequence = vehicle.hasCurrentStopSequence() ? vehicle.getCurrentStopSequence() : -1;
 
