@@ -627,10 +627,10 @@ public class GtfsRealTimeSqlRecorder {
         Date recorded = new Date();
         
         if (row == null) {
-            stmt.setInt(18, (int) recorded.getTime());
+            stmt.setInt(18, (int) (recorded.getTime() / 1000));
         }
         else {
-            row.add(recorded.getTime());
+            row.add((int) (recorded.getTime() / 1000));
         }
 
         if (stmt == null) {
@@ -858,10 +858,10 @@ public class GtfsRealTimeSqlRecorder {
         Date recorded = new Date();
         
         if (tuRow == null) {
-            stmt.setInt(11, (int) recorded.getTime());
+            stmt.setInt(11, (int) (recorded.getTime() / 1000));
         }
         else {
-            tuRow.add(recorded.getTime());
+            tuRow.add((int) (recorded.getTime() / 1000));
         }
 
         if (tuCopier == null) {
@@ -1102,7 +1102,7 @@ public class GtfsRealTimeSqlRecorder {
         }
 
         Date recorded = new Date();
-        stmt.setInt(6, (int) recorded.getTime());
+        stmt.setInt(6, (int) (recorded.getTime() / 1000));
 
         stmt.addBatch();
 
