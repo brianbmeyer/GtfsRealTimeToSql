@@ -1,16 +1,20 @@
 package com.transitfeeds.gtfsrealtimetosql;
 
+import java.sql.Connection;
+import java.sql.DriverManager;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
 
 public class FeedRunnerThread extends Thread {
-	private GtfsRealTimeSqlRecorder mRecorder;
+    private String mConnectionStr, mUsername, mPassword;
 	private long mInterval;
 	private List<GtfsRealTimeFeed> mFeeds = new ArrayList<GtfsRealTimeFeed>();
 
-	public FeedRunnerThread(GtfsRealTimeSqlRecorder recorder, long intervalMs) {
-		mRecorder = recorder;
+	public FeedRunnerThread(String connectionStr, String username, String password, long intervalMs) {
+	    mConnectionStr = connectionStr;
+	    mUsername = username;
+	    mPassword = password;
 		mInterval = intervalMs;
 	}
 
@@ -20,15 +24,20 @@ public class FeedRunnerThread extends Thread {
 
 	@Override
 	public void run() {
+	    Connection connection;
+        GtfsRealTimeSqlRecorder recorder;
+        
 		try {
-			mRecorder.startup();
+	        connection = DriverManager.getConnection(mConnectionStr, mUsername, mPassword);
+	        recorder = new GtfsRealTimeSqlRecorder(connection);
+			recorder.startup();
 		} catch (Exception e) {
 			return;
 		}
 
 		while (true) {
 			try {
-				mRecorder.begin();
+				recorder.begin();
 
 				for (GtfsRealTimeFeed feed : mFeeds) {
 					try {
@@ -38,13 +47,13 @@ public class FeedRunnerThread extends Thread {
 					}
 
 					try {
-						mRecorder.record(feed.getFeedMessage());
+						recorder.record(feed.getFeedMessage());
 					} catch (Exception e) {
 
 					}
 				}
 
-				mRecorder.commit();
+				recorder.commit();
 
 				System.err.println(String.format("Sleeping %dms", mInterval));
 
@@ -56,10 +65,16 @@ public class FeedRunnerThread extends Thread {
 			}
 		}
 
-		try {
-			mRecorder.shutdown();
-		} catch (Exception e) {
+        try {
+            recorder.shutdown();
+        } catch (Exception e) {
 
-		}
+        }
+
+        try {
+            connection.close();
+        } catch (Exception e) {
+
+        }
 	}
 }

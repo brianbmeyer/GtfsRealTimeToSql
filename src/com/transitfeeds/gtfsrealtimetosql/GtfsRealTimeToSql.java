@@ -1,8 +1,6 @@
 package com.transitfeeds.gtfsrealtimetosql;
 
 import java.io.File;
-import java.sql.Connection;
-import java.sql.DriverManager;
 
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.CommandLineParser;
@@ -75,10 +73,7 @@ public class GtfsRealTimeToSql {
 		}
 		
 		for (int i = 0; i < urls.length; i++) {
-			Connection connection = DriverManager.getConnection(connStr, line.getOptionValue("dbusername"), line.getOptionValue("dbpassword"));
-
-			GtfsRealTimeSqlRecorder recorder = new GtfsRealTimeSqlRecorder(connection);
-			FeedRunnerThread thread = new FeedRunnerThread(recorder, seconds * 1000);
+			FeedRunnerThread thread = new FeedRunnerThread(connStr, line.getOptionValue("dbusername"), line.getOptionValue("dbpassword"), seconds * 1000);
 
 			GtfsRealTimeFeed feed = new GtfsRealTimeFeed(urls[i]);
 			feed.setCredentials(username, password);
