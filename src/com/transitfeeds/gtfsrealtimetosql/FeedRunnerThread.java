@@ -32,6 +32,7 @@ public class FeedRunnerThread extends Thread {
 	        recorder = new GtfsRealTimeSqlRecorder(connection);
 			recorder.startup();
 		} catch (Exception e) {
+		    e.printStackTrace();
 			return;
 		}
 
