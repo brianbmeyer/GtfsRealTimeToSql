@@ -28,6 +28,13 @@ public class FeedRunnerThread extends Thread {
         GtfsRealTimeSqlRecorder recorder;
         
 		try {
+	        if (mConnectionStr.startsWith("jdbc:sqlite:")) {
+	            Class.forName("org.sqlite.JDBC");
+	        }
+	        else if (mConnectionStr.startsWith("jdbc:postgresql:")) {
+	            Class.forName("org.postgresql.Driver");
+	        }
+	        
 	        connection = DriverManager.getConnection(mConnectionStr, mUsername, mPassword);
 	        recorder = new GtfsRealTimeSqlRecorder(connection);
 			recorder.startup();
