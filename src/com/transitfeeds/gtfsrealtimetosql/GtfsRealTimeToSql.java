@@ -68,8 +68,10 @@ public class GtfsRealTimeToSql {
 		String connStr = line.getOptionValue("s");
 		
 		if (connStr.startsWith("jdbc:sqlite:")) {
-			// may not work without this call
 			Class.forName("org.sqlite.JDBC");
+		}
+		else if (connStr.startsWith("jdbc:postgresql:")) {
+		    Class.forName("org.postgresql.Driver");
 		}
 		
 		for (int i = 0; i < urls.length; i++) {
