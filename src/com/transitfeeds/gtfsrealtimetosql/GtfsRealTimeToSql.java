@@ -67,13 +67,6 @@ public class GtfsRealTimeToSql {
 
 		String connStr = line.getOptionValue("s");
 		
-		if (connStr.startsWith("jdbc:sqlite:")) {
-			Class.forName("org.sqlite.JDBC");
-		}
-		else if (connStr.startsWith("jdbc:postgresql:")) {
-		    Class.forName("org.postgresql.Driver");
-		}
-		
 		for (int i = 0; i < urls.length; i++) {
 			FeedRunnerThread thread = new FeedRunnerThread(connStr, line.getOptionValue("dbusername"), line.getOptionValue("dbpassword"), seconds * 1000);
 

@@ -171,24 +171,34 @@ public class GtfsRealTimeSqlRecorder {
         if (hasTripUpdates) {
             System.err.print("Committing trip updates... ");
 
-            if (stCopier == null) {
-                mStatements.get(STTRIPUPDATE_STOPTIMEUPDATES).executeBatch();
+            try {
+                if (stCopier == null) {
+                    mStatements.get(STTRIPUPDATE_STOPTIMEUPDATES).executeBatch();
+                }
+                else if (stCopyIn == null && stCopier.size() > 0) {
+                    stCopyIn = cm.copyIn(COPY_TRIP_UPDATES_STOP_TIMES);
+                    stCopier.write(stCopyIn, COPY_SEPARATOR);
+                }
             }
-            else if (stCopyIn == null && stCopier.size() > 0) {
-                stCopyIn = cm.copyIn(COPY_TRIP_UPDATES_STOP_TIMES);
-                stCopier.write(stCopyIn, COPY_SEPARATOR);
+            catch (SQLException e) {
+                
             }
             
             if (stCopyIn != null) {
                 stCopyIn.endCopy();
             }
 
-            if (tuCopier == null) {
-                mStatements.get(STTRIPUPDATE).executeBatch();
+            try {
+                if (tuCopier == null) {
+                    mStatements.get(STTRIPUPDATE).executeBatch();
+                }
+                else if (tuCopier.size() > 0) {
+                    tuCopyIn = cm.copyIn(COPY_TRIP_UPDATES);
+                    tuCopier.write(tuCopyIn, COPY_SEPARATOR);
+                }
             }
-            else if (tuCopier.size() > 0) {
-                tuCopyIn = cm.copyIn(COPY_TRIP_UPDATES);
-                tuCopier.write(tuCopyIn, COPY_SEPARATOR);
+            catch (SQLException e) {
+                
             }
             
             if (tuCopyIn != null) {
@@ -201,12 +211,17 @@ public class GtfsRealTimeSqlRecorder {
         if (hasVehiclePositions) {
             System.err.print("Committing vehicle positions... ");
 
-            if (vpCopier == null) {
-                mStatements.get(STVEHICLE).executeBatch();
+            try {
+                if (vpCopier == null) {
+                    mStatements.get(STVEHICLE).executeBatch();
+                }
+                else if (vpCopier.size() > 0) {
+                    vpCopyIn = cm.copyIn(COPY_VEHICLE_POSITIONS);
+                    vpCopier.write(vpCopyIn, COPY_SEPARATOR);
+                }
             }
-            else if (vpCopier.size() > 0) {
-                vpCopyIn = cm.copyIn(COPY_VEHICLE_POSITIONS);
-                vpCopier.write(vpCopyIn, COPY_SEPARATOR);
+            catch (Exception e) {
+                
             }
             
             if (vpCopyIn != null) {
