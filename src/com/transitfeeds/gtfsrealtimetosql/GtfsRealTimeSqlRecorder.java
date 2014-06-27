@@ -181,7 +181,7 @@ public class GtfsRealTimeSqlRecorder {
                 }
             }
             catch (SQLException e) {
-                
+                e.printStackTrace();
             }
             
             if (stCopyIn != null) {
@@ -198,7 +198,7 @@ public class GtfsRealTimeSqlRecorder {
                 }
             }
             catch (SQLException e) {
-                
+                e.printStackTrace();
             }
             
             if (tuCopyIn != null) {
@@ -221,7 +221,7 @@ public class GtfsRealTimeSqlRecorder {
                 }
             }
             catch (Exception e) {
-                
+                e.printStackTrace();                
             }
             
             if (vpCopyIn != null) {
