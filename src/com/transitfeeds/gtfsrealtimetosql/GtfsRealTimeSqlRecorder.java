@@ -39,17 +39,19 @@ public class GtfsRealTimeSqlRecorder {
     private Map<String, PreparedStatement> mStatements    = new HashMap<String, PreparedStatement>();
 
     private static final String            COPY_SEPARATOR = ",";
+    
+    private int mOpenQueries = 0;
 
     public GtfsRealTimeSqlRecorder(Connection connection) {
         mConnection = connection;
     }
 
-    public void startup() throws Exception {
+    public void startup() throws SQLException {
         createTables();
         openStatements();
     }
 
-    public void shutdown() throws Exception {
+    public void shutdown() throws SQLException {
         closeStatements();
     }
 
@@ -66,11 +68,17 @@ public class GtfsRealTimeSqlRecorder {
         mConnection.commit();
         mConnection.setAutoCommit(mAutoCommit);
     }
+    
+    public int getNumOpenQueries() {
+        return mOpenQueries;
+    }
 
-    public void record(FeedMessage feedMessage) throws Exception {
+    public void record(FeedMessage feedMessage) throws SQLException {
         boolean hasAlerts = false;
         boolean hasTripUpdates = false;
         boolean hasVehiclePositions = false;
+        
+        mOpenQueries = 0;
 
         for (FeedEntity entity : feedMessage.getEntityList()) {
             if (entity.hasAlert()) {
@@ -100,6 +108,9 @@ public class GtfsRealTimeSqlRecorder {
             clearVehiclePositionsData();
         }
 
+        hasAlerts = false;
+        hasTripUpdates = false;
+        
         System.err.println("Finished clearing tables");
 
         boolean useCopy = mConnection instanceof BaseConnection;
@@ -122,10 +133,14 @@ public class GtfsRealTimeSqlRecorder {
             
             if (hasTripUpdates) {
                 stCopyIn = cm.copyIn(COPY_TRIP_UPDATES_STOP_TIMES);
+                mOpenQueries++;
+                
                 stCopier = new DataCopier(stCopyIn, COPY_SEPARATOR);
             }
             else {
                 vpCopyIn = cm.copyIn(COPY_VEHICLE_POSITIONS);
+                mOpenQueries++;
+                
                 vpCopier = new DataCopier(vpCopyIn, COPY_SEPARATOR);
             }
         }
@@ -158,9 +173,15 @@ public class GtfsRealTimeSqlRecorder {
 
         if (hasAlerts) {
             System.err.print("Committing alerts... ");
-            mStatements.get(STALERT).executeBatch();
-            mStatements.get(STALERT_ENTITIES).executeBatch();
-            mStatements.get(STALERT_TIMERANGES).executeBatch();
+            
+            try {
+                mStatements.get(STALERT).executeBatch();
+                mStatements.get(STALERT_ENTITIES).executeBatch();
+                mStatements.get(STALERT_TIMERANGES).executeBatch();
+            }
+            catch (Exception e) {
+                
+            }
             System.err.println("done");
         }
 
@@ -173,6 +194,8 @@ public class GtfsRealTimeSqlRecorder {
                 }
                 else if (stCopyIn == null && stCopier.size() > 0) {
                     stCopyIn = cm.copyIn(COPY_TRIP_UPDATES_STOP_TIMES);
+                    mOpenQueries++;
+                    
                     stCopier.write(stCopyIn, COPY_SEPARATOR);
                 }
             }
@@ -181,7 +204,13 @@ public class GtfsRealTimeSqlRecorder {
             }
             
             if (stCopyIn != null) {
-                stCopyIn.endCopy();
+                try {
+                    stCopyIn.endCopy();
+                    mOpenQueries--;
+                }
+                catch (Exception e) {
+                    
+                }
             }
 
             try {
@@ -190,6 +219,8 @@ public class GtfsRealTimeSqlRecorder {
                 }
                 else if (tuCopyIn == null && tuCopier.size() > 0) {
                     tuCopyIn = cm.copyIn(COPY_TRIP_UPDATES);
+                    mOpenQueries++;
+                    
                     tuCopier.write(tuCopyIn, COPY_SEPARATOR);
                 }
             }
@@ -198,7 +229,13 @@ public class GtfsRealTimeSqlRecorder {
             }
             
             if (tuCopyIn != null) {
-                tuCopyIn.endCopy();
+                try {
+                    tuCopyIn.endCopy();
+                    mOpenQueries--;
+                }
+                catch (Exception e) {
+                    
+                }
             }
 
             System.err.println("done");
@@ -213,6 +250,7 @@ public class GtfsRealTimeSqlRecorder {
                 }
                 else if (vpCopyIn == null && vpCopier.size() > 0) {
                     vpCopyIn = cm.copyIn(COPY_VEHICLE_POSITIONS);
+                    mOpenQueries++;
                     vpCopier.write(vpCopyIn, COPY_SEPARATOR);
                 }
             }
@@ -222,6 +260,7 @@ public class GtfsRealTimeSqlRecorder {
             
             if (vpCopyIn != null) {
                 vpCopyIn.endCopy();
+                mOpenQueries--;
             }
 
             System.err.println("done");

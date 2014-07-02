@@ -8,14 +8,14 @@ import java.util.List;
 
 public class FeedRunnerThread extends Thread {
     private String mConnectionStr, mUsername, mPassword;
-	private long mInterval;
+	private long mDefaultInterval, mCurrentInterval;
 	private List<GtfsRealTimeFeed> mFeeds = new ArrayList<GtfsRealTimeFeed>();
 
 	public FeedRunnerThread(String connectionStr, String username, String password, long intervalMs) {
 	    mConnectionStr = connectionStr;
 	    mUsername = username;
 	    mPassword = password;
-		mInterval = intervalMs;
+		mDefaultInterval = intervalMs;
 	}
 
 	public void addFeed(GtfsRealTimeFeed feed) {
@@ -24,9 +24,6 @@ public class FeedRunnerThread extends Thread {
 
 	@Override
 	public void run() {
-	    Connection connection;
-        GtfsRealTimeSqlRecorder recorder;
-        
 		try {
 	        if (mConnectionStr.startsWith("jdbc:sqlite:")) {
 	            Class.forName("org.sqlite.JDBC");
@@ -35,16 +32,25 @@ public class FeedRunnerThread extends Thread {
 	            Class.forName("org.postgresql.Driver");
 	        }
 	        
-	        connection = DriverManager.getConnection(mConnectionStr, mUsername, mPassword);
-	        recorder = new GtfsRealTimeSqlRecorder(connection);
-			recorder.startup();
 		} catch (Exception e) {
             e.printStackTrace();
 			return;
 		}
 
-		while (true) {
+        Connection connection = null;
+        GtfsRealTimeSqlRecorder recorder = null;
+
+        mCurrentInterval = mDefaultInterval;
+        
+        while (true) {
 			try {
+			    if (connection == null) {
+			        System.err.println(String.format("Connecting to database: %s", mConnectionStr));
+			        connection = DriverManager.getConnection(mConnectionStr, mUsername, mPassword);
+			        recorder = new GtfsRealTimeSqlRecorder(connection);
+			        recorder.startup();
+			    }
+			    
 				recorder.begin();
 
 				for (GtfsRealTimeFeed feed : mFeeds) {
@@ -61,12 +67,30 @@ public class FeedRunnerThread extends Thread {
                         e.printStackTrace();
 					}
 				}
+				
+				boolean reconnect = recorder.getNumOpenQueries() > 0;
 
-				recorder.commit();
+				if (!reconnect) {
+				    recorder.commit();
+				}
 
-				System.err.println(String.format("Sleeping %dms", mInterval));
-
-				Thread.sleep(mInterval);
+				if (reconnect) {
+				    System.err.println(String.format("Disconnecting from %s", mConnectionStr));
+				    connection.close();
+				    connection = null;
+				    
+				    mCurrentInterval += mDefaultInterval;
+				}
+				else {
+				    mCurrentInterval = mDefaultInterval;
+				}
+				
+                System.err.println(String.format("Sleeping %dms", mCurrentInterval));
+                Thread.sleep(mCurrentInterval);
+                
+                if (reconnect) {
+                    continue;
+                }
 			} catch (SQLException se) {
                 se.printStackTrace();
 				break;
