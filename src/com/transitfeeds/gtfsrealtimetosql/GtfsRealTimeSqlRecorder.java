@@ -108,9 +108,6 @@ public class GtfsRealTimeSqlRecorder {
             clearVehiclePositionsData();
         }
 
-        hasAlerts = false;
-        hasTripUpdates = false;
-        
         System.err.println("Finished clearing tables");
 
         boolean useCopy = mConnection instanceof BaseConnection;
