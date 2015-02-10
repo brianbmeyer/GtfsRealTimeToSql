@@ -90,6 +90,7 @@ public class GtfsRealTimeFeed {
 		
 		HttpGet httpGet = new HttpGet(uri);
 		httpGet.setHeader("Accept-Encoding", GZIP);
+		httpGet.setHeader("Accept", "application/x-protobuf");
 
 		String username = mUsername;
 		String password = mPassword;
