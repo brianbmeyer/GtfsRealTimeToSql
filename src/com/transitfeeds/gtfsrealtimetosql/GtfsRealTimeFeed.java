@@ -120,7 +120,6 @@ public class GtfsRealTimeFeed {
 		}
 
 		mFeedMessage = GtfsRealtime.FeedMessage.parseFrom(is);
-		System.out.println(mFeedMessage.toString());
 		System.err.println("Finished Loading " + url);
 	}
 }
