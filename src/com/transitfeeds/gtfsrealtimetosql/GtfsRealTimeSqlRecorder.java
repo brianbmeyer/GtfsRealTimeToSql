@@ -143,7 +143,7 @@ public class GtfsRealTimeSqlRecorder {
         }
 
         for (FeedEntity entity : feedMessage.getEntityList()) {
-            if (hasAlerts) {
+            if (entity.hasAlert()) {
                 try {
                     recordAlert(entity.getAlert());
                 } catch (SQLException e) {
@@ -151,7 +151,7 @@ public class GtfsRealTimeSqlRecorder {
                 }
             }
 
-            if (hasTripUpdates) {
+            if (entity.hasTripUpdate()) {
                 try {
                     recordTripUpdate(entity.getTripUpdate(), tuCopier, stCopier);
                 } catch (Exception e) {
@@ -159,7 +159,7 @@ public class GtfsRealTimeSqlRecorder {
                 }
             }
 
-            if (hasVehiclePositions) {
+            if (entity.hasVehicle()) {
                 try {
                     recordVehicle(entity.getVehicle(), vpCopier);
                 } catch (Exception e) {
