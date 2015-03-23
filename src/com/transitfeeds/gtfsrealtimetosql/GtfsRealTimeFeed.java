@@ -102,6 +102,13 @@ public class GtfsRealTimeFeed {
 
 		HttpResponse response = httpClient.execute(httpGet);
 
+//		System.err.println("Request headers:");
+//		outputHeaders(httpGet.getAllHeaders());
+
+//	    System.err.println("Response headers:");
+//	    outputHeaders(response.getAllHeaders());
+
+		
 		if (response.getStatusLine().getStatusCode() != 200) {
 			throw new HttpException("Unexpected response: " + response.getStatusLine().toString(), response.getStatusLine().getStatusCode());
 		}
@@ -121,5 +128,13 @@ public class GtfsRealTimeFeed {
 
 		mFeedMessage = GtfsRealtime.FeedMessage.parseFrom(is);
 		System.err.println("Finished Loading " + url);
+	}
+	
+	private void outputHeaders(Header[] headers) {
+	    for (int i = 0; i < headers.length; i++) {
+	        Header header = headers[i];
+	        
+	        System.err.println(header.toString());
+	    }
 	}
 }
