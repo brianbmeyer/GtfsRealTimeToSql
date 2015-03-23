@@ -15,7 +15,8 @@ public class GtfsRealTimeToSql {
 
 		options.addOption("u", true, "GTFS-RealTime URL");
 		options.addOption("s", true, "JDBC Connection");
-		options.addOption("d", false, "Daemonize");
+        options.addOption("d", false, "Daemonize");
+        options.addOption("h", false, "Output HTTP headers");
 		options.addOption("dbusername", true, "Database username");
 		options.addOption("dbpassword", true, "Database password");
 		options.addOption("username", true, "Username");
@@ -71,6 +72,7 @@ public class GtfsRealTimeToSql {
 			FeedRunnerThread thread = new FeedRunnerThread(connStr, line.getOptionValue("dbusername"), line.getOptionValue("dbpassword"), seconds * 1000);
 
 			GtfsRealTimeFeed feed = new GtfsRealTimeFeed(urls[i]);
+			feed.setOutputHeaders(line.hasOption("h"));
 			feed.setCredentials(username, password);
 			thread.addFeed(feed);
 			thread.start();		

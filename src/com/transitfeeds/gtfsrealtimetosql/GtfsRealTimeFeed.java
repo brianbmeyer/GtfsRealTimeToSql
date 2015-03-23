@@ -29,6 +29,7 @@ public class GtfsRealTimeFeed {
 	private String mUsername;
 	private String mPassword;
 	private FeedMessage mFeedMessage;
+	private boolean mOutputHeaders = false;
 
 	public GtfsRealTimeFeed(String url) {
 		mUrl = url;
@@ -37,6 +38,10 @@ public class GtfsRealTimeFeed {
 	public void setCredentials(String username, String password) {
 		mUsername = username;
 		mPassword = password;
+	}
+	
+	public void setOutputHeaders(boolean flag) {
+	    mOutputHeaders = flag;
 	}
 
 	public FeedMessage getFeedMessage()
@@ -102,12 +107,13 @@ public class GtfsRealTimeFeed {
 
 		HttpResponse response = httpClient.execute(httpGet);
 
-//		System.err.println("Request headers:");
-//		outputHeaders(httpGet.getAllHeaders());
-
-//	    System.err.println("Response headers:");
-//	    outputHeaders(response.getAllHeaders());
-
+		if (mOutputHeaders) {
+    		System.err.println("Request headers:");
+    		outputHeaders(httpGet.getAllHeaders());
+    
+    	    System.err.println("Response headers:");
+    	    outputHeaders(response.getAllHeaders());
+		}
 		
 		if (response.getStatusLine().getStatusCode() != 200) {
 			throw new HttpException("Unexpected response: " + response.getStatusLine().toString(), response.getStatusLine().getStatusCode());
