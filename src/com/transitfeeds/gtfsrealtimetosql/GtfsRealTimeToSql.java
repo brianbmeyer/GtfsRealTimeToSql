@@ -50,25 +50,32 @@ public class GtfsRealTimeToSql {
 			daemonize();
 		}
 		
-		long seconds = 0;
-		
-		try {
-			seconds = Long.valueOf(line.getOptionValue("refresh"));
-		}
-		catch (Exception e) {
-			
-		}
-		
-		seconds = Math.max(15, seconds);
-
 		String username = line.getOptionValue("username");
 		String password = line.getOptionValue("password");
 
 		String[] urls = line.getOptionValues("u");
+		String[] refreshes = line.getOptionValues("r");
 
 		String connStr = line.getOptionValue("s");
 		
 		for (int i = 0; i < urls.length; i++) {
+		    long seconds = 0;
+		    
+		    int refreshIdx = i;
+		    
+		    if (i >= refreshes.length) {
+		        refreshIdx = refreshes.length - 1;
+		    }
+		    
+	        try {
+	            seconds = Long.valueOf(refreshIdx);
+		    }
+		    catch (Exception e) {
+		        
+		    }
+		    
+	        seconds = Math.max(15, seconds);
+		    
 			FeedRunnerThread thread = new FeedRunnerThread(connStr, line.getOptionValue("dbusername"), line.getOptionValue("dbpassword"), seconds * 1000);
 
 			GtfsRealTimeFeed feed = new GtfsRealTimeFeed(urls[i]);
