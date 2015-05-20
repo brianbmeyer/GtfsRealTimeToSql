@@ -617,9 +617,10 @@ public class GtfsRealTimeSqlRecorder {
                 stmt.setNull(12, Types.VARCHAR);
                 stmt.setNull(13, Types.VARCHAR);
                 stmt.setNull(14, Types.VARCHAR);
+                stmt.setNull(15, Types.VARCHAR);
             }
             else {
-                row.addNull(4);
+                row.addNull(5);
             }
         }
         
