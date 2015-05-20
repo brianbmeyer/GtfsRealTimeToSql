@@ -68,7 +68,7 @@ public class GtfsRealTimeToSql {
 		    }
 		    
 	        try {
-	            seconds = Long.valueOf(refreshIdx);
+	            seconds = Long.valueOf(refreshes[refreshIdx]);
 		    }
 		    catch (Exception e) {
 		        
