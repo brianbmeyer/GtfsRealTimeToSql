@@ -54,7 +54,7 @@ public class GtfsRealTimeToSql {
 		String password = line.getOptionValue("password");
 
 		String[] urls = line.getOptionValues("u");
-		String[] refreshes = line.getOptionValues("r");
+		String[] refreshes = line.getOptionValues("refresh");
 
 		String connStr = line.getOptionValue("s");
 		
