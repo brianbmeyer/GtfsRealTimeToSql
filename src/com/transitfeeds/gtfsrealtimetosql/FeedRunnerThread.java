@@ -8,14 +8,15 @@ import java.util.List;
 
 public class FeedRunnerThread extends Thread {
     private String mConnectionStr, mUsername, mPassword;
-	private long mDefaultInterval, mCurrentInterval;
+	private long mDefaultInterval, mCurrentInterval, mMaxInterval;
 	private List<GtfsRealTimeFeed> mFeeds = new ArrayList<GtfsRealTimeFeed>();
-
+	
 	public FeedRunnerThread(String connectionStr, String username, String password, long intervalMs) {
 	    mConnectionStr = connectionStr;
 	    mUsername = username;
 	    mPassword = password;
 		mDefaultInterval = intervalMs;
+		mMaxInterval = intervalMs * 5;
 	}
 
 	public void addFeed(GtfsRealTimeFeed feed) {
@@ -85,12 +86,14 @@ public class FeedRunnerThread extends Thread {
 				    mCurrentInterval = mDefaultInterval;
 				}
 				
-                System.err.println(String.format("Sleeping %dms", mCurrentInterval));
-                Thread.sleep(mCurrentInterval);
-                
-                if (reconnect) {
-                    continue;
-                }
+				if (mCurrentInterval > mMaxInterval) {
+                    System.err.println(String.format("Interval too large (%dms), exiting", mCurrentInterval));
+				    break;
+				}
+				else {
+                    System.err.println(String.format("Sleeping %dms", mCurrentInterval));
+                    Thread.sleep(mCurrentInterval);
+				}
 			} catch (SQLException se) {
                 se.printStackTrace();
 				break;
