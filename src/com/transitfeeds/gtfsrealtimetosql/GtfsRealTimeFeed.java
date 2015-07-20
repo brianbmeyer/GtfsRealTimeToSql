@@ -6,6 +6,7 @@ import java.net.URI;
 import java.security.SecureRandom;
 import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
+import java.util.logging.Logger;
 import java.util.zip.GZIPInputStream;
 
 import javax.net.ssl.SSLContext;
@@ -30,9 +31,15 @@ public class GtfsRealTimeFeed {
 	private String mPassword;
 	private FeedMessage mFeedMessage;
 	private boolean mOutputHeaders = false;
+	
+	private Logger mLogger;
 
 	public GtfsRealTimeFeed(String url) {
 		mUrl = url;
+	}
+	
+	public void setLogger(Logger logger) {
+	    mLogger = logger;
 	}
 	
 	public void setCredentials(String username, String password) {
@@ -44,20 +51,25 @@ public class GtfsRealTimeFeed {
 	    mOutputHeaders = flag;
 	}
 
-	public FeedMessage getFeedMessage()
-	{
+	public FeedMessage getFeedMessage() {
 		return mFeedMessage;
 	}
 	
 	private static final String HTTPS = "https";
 	private static final String GZIP = "gzip";
 	
+	private void log(String str) {
+	    if (mLogger != null) {
+	        mLogger.info(str);
+	    }
+	}
+	
 	public void load() throws Exception {
 		String url = mUrl;
 		
 		HttpClient httpClient;
 
-		System.err.println("Loading " + url + " ...");
+	    log("Loading " + url + " ...");
 		
 		URI uri = new URI(url);
 
@@ -108,10 +120,10 @@ public class GtfsRealTimeFeed {
 		HttpResponse response = httpClient.execute(httpGet);
 
 		if (mOutputHeaders) {
-    		System.err.println("Request headers:");
+		    log("Request headers:");
     		outputHeaders(httpGet.getAllHeaders());
     
-    	    System.err.println("Response headers:");
+    		log("Response headers:");
     	    outputHeaders(response.getAllHeaders());
 		}
 		
@@ -133,14 +145,22 @@ public class GtfsRealTimeFeed {
 		}
 
 		mFeedMessage = GtfsRealtime.FeedMessage.parseFrom(is);
-		System.err.println("Finished Loading " + url);
+		log("Finished Loading " + url);
 	}
 	
 	private void outputHeaders(Header[] headers) {
+	    String str = "";
+	    
 	    for (int i = 0; i < headers.length; i++) {
 	        Header header = headers[i];
 	        
-	        System.err.println(header.toString());
+	        if (i > 0) {
+	            str += "\n";
+	        }
+	        
+	        str += header.toString();
 	    }
+	    
+	    log(str);
 	}
 }

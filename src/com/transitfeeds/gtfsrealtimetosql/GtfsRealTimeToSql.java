@@ -1,6 +1,9 @@
 package com.transitfeeds.gtfsrealtimetosql;
 
 import java.io.File;
+import java.util.logging.FileHandler;
+import java.util.logging.Handler;
+import java.util.logging.SimpleFormatter;
 
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.CommandLineParser;
@@ -13,6 +16,7 @@ public class GtfsRealTimeToSql {
 	public static void main(String[] args) throws Exception {
 		Options options = new Options();
 
+		options.addOption("l", true, "Log path");
 		options.addOption("u", true, "GTFS-RealTime URL");
 		options.addOption("s", true, "JDBC Connection");
         options.addOption("d", false, "Daemonize");
@@ -26,11 +30,11 @@ public class GtfsRealTimeToSql {
 		CommandLineParser parser = new GnuParser();
 		CommandLine line = parser.parse(options, args);
 
-		if (!line.hasOption("u")) {
-			System.err.println("GTFS-RealTime URL must be specified");
-			showHelp(options);
-			System.exit(1);
-		}
+        if (!line.hasOption("u")) {
+            System.err.println("GTFS-RealTime URL must be specified");
+            showHelp(options);
+            System.exit(1);
+        }
 		
 		if (!line.hasOption("s")) {
 			System.err.println("JDBC path must be specified, examples:");
@@ -44,6 +48,13 @@ public class GtfsRealTimeToSql {
 			System.err.println("Password must be specified");
 			System.exit(1);
 			return;
+		}
+		
+		File logFile = null;
+        
+		if (line.hasOption("l")) {
+            String logPath = line.getOptionValue("l");
+            logFile = new File(logPath);
 		}
 		
 		if (line.hasOption("d")) {
@@ -63,7 +74,7 @@ public class GtfsRealTimeToSql {
 		    
 		    int refreshIdx = i;
 		    
-		    if (i >= refreshes.length) {
+		    if (refreshes != null && i > refreshes.length) {
 		        refreshIdx = refreshes.length - 1;
 		    }
 		    
@@ -75,9 +86,18 @@ public class GtfsRealTimeToSql {
 		    }
 		    
 	        seconds = Math.max(15, seconds);
-		    
+	        
 			FeedRunnerThread thread = new FeedRunnerThread(connStr, line.getOptionValue("dbusername"), line.getOptionValue("dbpassword"), seconds * 1000);
 
+			if (logFile != null) {
+                Handler handler = new FileHandler(logFile.getAbsolutePath(), true);
+                SimpleFormatter formatter = new SimpleFormatter();
+                handler.setFormatter(formatter);
+                
+                thread.addLogHandler(handler);
+			}
+			
+			
 			GtfsRealTimeFeed feed = new GtfsRealTimeFeed(urls[i]);
 			feed.setOutputHeaders(line.hasOption("h"));
 			feed.setCredentials(username, password);

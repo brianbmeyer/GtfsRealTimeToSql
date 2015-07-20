@@ -1,5 +1,7 @@
 package com.transitfeeds.gtfsrealtimetosql;
 
+import java.io.PrintWriter;
+import java.io.StringWriter;
 import java.sql.Connection;
 import java.sql.DatabaseMetaData;
 import java.sql.PreparedStatement;
@@ -12,6 +14,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
+import java.util.logging.Logger;
 
 import org.postgresql.copy.CopyIn;
 import org.postgresql.copy.CopyManager;
@@ -41,9 +44,12 @@ public class GtfsRealTimeSqlRecorder {
     private static final String            COPY_SEPARATOR = ",";
     
     private int mOpenQueries = 0;
+    
+    private Logger mLogger;
 
-    public GtfsRealTimeSqlRecorder(Connection connection) {
+    public GtfsRealTimeSqlRecorder(Logger logger, Connection connection) {
         mConnection = connection;
+        mLogger = logger;
     }
 
     public void startup() throws SQLException {
@@ -74,27 +80,34 @@ public class GtfsRealTimeSqlRecorder {
     }
 
     public void record(FeedMessage feedMessage) throws SQLException {
-        boolean hasAlerts = false;
-        boolean hasTripUpdates = false;
-        boolean hasVehiclePositions = false;
+        
+        int numAlerts = 0;
+        int numTripUpdates = 0;
+        int numVehiclePositions = 0;
         
         mOpenQueries = 0;
 
         for (FeedEntity entity : feedMessage.getEntityList()) {
             if (entity.hasAlert()) {
-                hasAlerts = true;
+                numAlerts++;
             }
 
             if (entity.hasTripUpdate()) {
-                hasTripUpdates = true;
+                numTripUpdates++;
             }
 
             if (entity.hasVehicle()) {
-                hasVehiclePositions = true;
+                numVehiclePositions++;
             }
         }
+        
+        boolean hasAlerts = numAlerts > 0;
+        boolean hasTripUpdates = numTripUpdates > 0;
+        boolean hasVehiclePositions = numVehiclePositions > 0;
 
-        System.err.println("Clearing tables...");
+        mLogger.info(String.format("Entities: alerts=%d, updates=%d, positions=%d", numAlerts, numTripUpdates, numVehiclePositions));
+        
+        mLogger.info("Clearing tables...");
 
         if (hasAlerts) {
             clearAlertsData();
@@ -108,7 +121,7 @@ public class GtfsRealTimeSqlRecorder {
             clearVehiclePositionsData();
         }
 
-        System.err.println("Finished clearing tables");
+        mLogger.info("Finished clearing tables");
 
         boolean useCopy = mConnection instanceof BaseConnection;
 
@@ -147,7 +160,7 @@ public class GtfsRealTimeSqlRecorder {
                 try {
                     recordAlert(entity.getAlert());
                 } catch (SQLException e) {
-                    e.printStackTrace();
+                    mLogger.warning(getString(e));
                 }
             }
 
@@ -155,7 +168,7 @@ public class GtfsRealTimeSqlRecorder {
                 try {
                     recordTripUpdate(entity.getTripUpdate(), tuCopier, stCopier);
                 } catch (Exception e) {
-                    e.printStackTrace();
+                    mLogger.warning(getString(e));
                 }
             }
 
@@ -163,27 +176,27 @@ public class GtfsRealTimeSqlRecorder {
                 try {
                     recordVehicle(entity.getVehicle(), vpCopier);
                 } catch (Exception e) {
-                    e.printStackTrace();
+                    mLogger.warning(getString(e));
                 }
             }
         }
 
         if (hasAlerts) {
-            System.err.print("Committing alerts... ");
+            mLogger.info("Committing alerts... ");
             
             try {
                 mStatements.get(STALERT).executeBatch();
                 mStatements.get(STALERT_ENTITIES).executeBatch();
                 mStatements.get(STALERT_TIMERANGES).executeBatch();
+                mLogger.info("done");
             }
             catch (Exception e) {
-                
+                mLogger.warning(getString(e));
             }
-            System.err.println("done");
         }
 
         if (hasTripUpdates) {
-            System.err.print("Committing trip updates... ");
+            mLogger.info("Committing trip updates... ");
 
             try {
                 if (stCopier == null) {
@@ -206,7 +219,7 @@ public class GtfsRealTimeSqlRecorder {
                     mOpenQueries--;
                 }
                 catch (Exception e) {
-                    
+                    mLogger.warning(getString(e));
                 }
             }
 
@@ -231,11 +244,11 @@ public class GtfsRealTimeSqlRecorder {
                     mOpenQueries--;
                 }
                 catch (Exception e) {
-                    
+                    mLogger.warning(getString(e));
                 }
             }
 
-            System.err.println("done");
+            mLogger.info("done");
         }
 
         if (hasVehiclePositions) {
@@ -252,7 +265,7 @@ public class GtfsRealTimeSqlRecorder {
                 }
             }
             catch (Exception e) {
-                e.printStackTrace();                
+                mLogger.warning(getString(e));
             }
             
             if (vpCopyIn != null) {
@@ -260,7 +273,7 @@ public class GtfsRealTimeSqlRecorder {
                 mOpenQueries--;
             }
 
-            System.err.println("done");
+            mLogger.info("done");
         }
     }
 
@@ -288,7 +301,7 @@ public class GtfsRealTimeSqlRecorder {
     private void clearData(int from, int to) throws SQLException {
         for (int i = from * 3; i <= to * 3; i += 3) {
             String query = "DELETE FROM " + TABLES[i];
-            System.err.println(query);
+            mLogger.info(query);
 
             Statement stmt = mConnection.createStatement();
             stmt.execute(query);
@@ -314,7 +327,7 @@ public class GtfsRealTimeSqlRecorder {
                 continue;
             }
 
-            System.err.println("Creating table " + tableName);
+            mLogger.info("Creating table " + tableName);
 
             String create = TABLES[i + 1];
             create = create.replace("INTEGER PRIMARY KEY", "SERIAL PRIMARY KEY");
@@ -1272,5 +1285,12 @@ public class GtfsRealTimeSqlRecorder {
 
     private String getString(TranslatedString str) {
         return str.getTranslation(0).getText();
+    }
+
+    private String getString(Exception e) {
+        StringWriter sw = new StringWriter();
+        e.printStackTrace(new PrintWriter(sw));
+        
+        return sw.toString();
     }
 }
