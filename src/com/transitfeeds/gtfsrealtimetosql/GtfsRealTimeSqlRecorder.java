@@ -123,6 +123,11 @@ public class GtfsRealTimeSqlRecorder {
 
         mLogger.info("Finished clearing tables");
 
+        if (!hasAlerts && !hasTripUpdates && !hasVehiclePositions) {
+            mLogger.info("Nothing to record");
+            return;
+        }
+        
         boolean useCopy = mConnection instanceof BaseConnection;
 
         CopyManager cm = null;
@@ -147,7 +152,7 @@ public class GtfsRealTimeSqlRecorder {
                 
                 stCopier = new DataCopier(stCopyIn, COPY_SEPARATOR);
             }
-            else {
+            else if (hasVehiclePositions) {
                 vpCopyIn = cm.copyIn(COPY_VEHICLE_POSITIONS);
                 mOpenQueries++;
                 
