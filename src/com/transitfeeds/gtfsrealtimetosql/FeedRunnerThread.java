@@ -123,9 +123,10 @@ public class FeedRunnerThread extends Thread {
                     Thread.sleep(mCurrentInterval);
 				}
 			} catch (SQLException se) {
-                se.printStackTrace();
+                mLogger.info(getString(se));
 				break;
 			} catch (InterruptedException e) {
+                mLogger.info(getString(e));
 				break;
 			}
 		}
