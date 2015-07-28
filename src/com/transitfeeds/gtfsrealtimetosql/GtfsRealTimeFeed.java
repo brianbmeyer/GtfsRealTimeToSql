@@ -1,8 +1,12 @@
 package com.transitfeeds.gtfsrealtimetosql;
 
 import java.io.ByteArrayInputStream;
+import java.io.IOException;
 import java.io.InputStream;
+import java.net.SocketTimeoutException;
 import java.net.URI;
+import java.security.KeyManagementException;
+import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
@@ -15,8 +19,11 @@ import javax.net.ssl.TrustManager;
 import org.apache.http.Header;
 import org.apache.http.HttpEntity;
 import org.apache.http.HttpResponse;
+import org.apache.http.client.ClientProtocolException;
 import org.apache.http.client.HttpClient;
+import org.apache.http.client.config.RequestConfig;
 import org.apache.http.client.methods.HttpGet;
+import org.apache.http.conn.ConnectTimeoutException;
 import org.apache.http.impl.client.HttpClientBuilder;
 import org.apache.http.util.EntityUtils;
 
@@ -26,7 +33,7 @@ import com.sun.org.apache.xml.internal.security.utils.Base64;
 
 public class GtfsRealTimeFeed {
 
-	private String mUrl;
+	private URI mUri;
 	private String mUsername;
 	private String mPassword;
 	private FeedMessage mFeedMessage;
@@ -34,8 +41,8 @@ public class GtfsRealTimeFeed {
 	
 	private Logger mLogger;
 
-	public GtfsRealTimeFeed(String url) {
-		mUrl = url;
+	public GtfsRealTimeFeed(URI uri) {
+	    mUri = uri;
 	}
 	
 	public void setLogger(Logger logger) {
@@ -64,18 +71,25 @@ public class GtfsRealTimeFeed {
 	    }
 	}
 	
-	public void load() throws Exception {
-		String url = mUrl;
-		
+	private int mSocketTimeoutMs = 30000;
+	private int mConnectTimeoutMs = 30000;
+	
+	public void load() throws ConnectTimeoutException, SocketTimeoutException, NoSuchAlgorithmException, KeyManagementException, ClientProtocolException, IOException, HttpException {
 		HttpClient httpClient;
 
-	    log("Loading " + url + " ...");
+		URI uri = mUri;
+		        
+	    log("Loading " + uri.toString() + " ...");
 		
-		URI uri = new URI(url);
-
 		HttpClientBuilder builder = HttpClientBuilder.create();
 
-		if (url.startsWith(HTTPS)) {
+		RequestConfig.Builder configBuilder = RequestConfig.custom();
+		configBuilder.setSocketTimeout(mSocketTimeoutMs);
+		configBuilder.setConnectTimeout(mConnectTimeoutMs);
+		
+	    builder.setDefaultRequestConfig(configBuilder.build());
+
+	    if (uri.getScheme().equals(HTTPS)) {
 			SSLContext sslContext = SSLContext.getInstance("SSL");
 			
 			sslContext.init(null, new TrustManager[] { new javax.net.ssl.X509TrustManager() {
@@ -145,7 +159,7 @@ public class GtfsRealTimeFeed {
 		}
 
 		mFeedMessage = GtfsRealtime.FeedMessage.parseFrom(is);
-		log("Finished Loading " + url);
+		log("Finished Loading " + uri.toString());
 	}
 	
 	private void outputHeaders(Header[] headers) {

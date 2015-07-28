@@ -1,6 +1,7 @@
 package com.transitfeeds.gtfsrealtimetosql;
 
 import java.io.File;
+import java.net.URI;
 import java.util.logging.FileHandler;
 import java.util.logging.Handler;
 import java.util.logging.SimpleFormatter;
@@ -97,8 +98,9 @@ public class GtfsRealTimeToSql {
                 thread.addLogHandler(handler);
 			}
 			
+			URI uri = new URI(urls[i]);
 			
-			GtfsRealTimeFeed feed = new GtfsRealTimeFeed(urls[i]);
+			GtfsRealTimeFeed feed = new GtfsRealTimeFeed(uri);
 			feed.setOutputHeaders(line.hasOption("h"));
 			feed.setCredentials(username, password);
 			thread.addFeed(feed);
